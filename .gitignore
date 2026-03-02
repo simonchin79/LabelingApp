@@ -1,0 +1,10 @@
+/build/
+*.user
+*.png
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+*.ninja
+*.qrc
+*.qmltypes
+*.log
