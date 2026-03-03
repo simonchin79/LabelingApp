@@ -14,16 +14,29 @@ qt_add_executable(appLabeling
     config.h
     control.cpp
     control.h
+    inferenceservice.cpp
+    inferenceservice.h
     imagedisplay.cpp
     imagedisplay.h
+    labelingservice.cpp
+    labelingservice.h
     main.cpp
+    systemservice.cpp
+    systemservice.h
+    trainservice.cpp
+    trainservice.h
 )
 
 qt_add_qml_module(appLabeling
     URI Labeling
     VERSION 1.0
     QML_FILES
+        InferenceTab.qml
+        LabelingTab.qml
         Main.qml
+        RightPanel.qml
+        SettingsTab.qml
+        TrainingTab.qml
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.

@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QImageReader>
 #include <QSet>
 #include <QUrl>
 
@@ -20,16 +21,21 @@ const QString kLastImageIndexKey = QStringLiteral("session/lastImageIndex");
 const QString kShowLabelKey = QStringLiteral("ui/showLabel");
 const QString kShowPredictKey = QStringLiteral("ui/showPredict");
 const QString kShowGoodKey = QStringLiteral("ui/showGood");
+const QString kIoFolderPathKey = QStringLiteral("io/lastFolderPath");
 }
 
 Control::Control(QObject *parent)
     : QObject(parent)
-    , m_config(this)
+    , m_systemService(this)
+    , m_labelingService(&m_systemService, this)
+    , m_trainService(this)
+    , m_inferenceService(this)
 {
     m_status = QStringLiteral("Create a project to start labeling");
-    m_showLabel = m_config.loadAppValue(kShowLabelKey, true).toBool();
-    m_showPredict = m_config.loadAppValue(kShowPredictKey, true).toBool();
-    m_showGood = m_config.loadAppValue(kShowGoodKey, true).toBool();
+    m_showLabel = m_systemService.loadAppValue(kShowLabelKey, true).toBool();
+    m_showPredict = m_systemService.loadAppValue(kShowPredictKey, true).toBool();
+    m_showGood = m_systemService.loadAppValue(kShowGoodKey, true).toBool();
+    m_ioFolderPath = m_systemService.loadAppValue(kIoFolderPathKey).toString();
     if (!restoreLastSession()) {
         setStatus(QStringLiteral("Create a project to start labeling"));
     }
@@ -47,7 +53,7 @@ QString Control::projectName() const
 
 QString Control::projectFilePath() const
 {
-    return m_config.projectFilePath();
+    return m_systemService.projectFilePath();
 }
 
 QStringList Control::imagePaths() const
@@ -105,7 +111,7 @@ QVariantList Control::currentPolygons() const
     polygons.reserve(annList.size());
 
     for (const AnnotationData &ann : annList) {
-        const QString kind = normalizedKind(ann.kind);
+        const QString kind = m_labelingService.normalizedKind(ann.kind);
         if ((kind == QStringLiteral("label") && !m_showLabel)
             || (kind == QStringLiteral("predict") && !m_showPredict)
             || (kind == QStringLiteral("good") && !m_showGood)) {
@@ -194,7 +200,7 @@ void Control::setAnnotationRemarks(const QString &remarks)
 
 void Control::setAnnotationKind(const QString &kind)
 {
-    const QString normalized = normalizedKind(kind);
+    const QString normalized = m_labelingService.normalizedKind(kind);
     if (m_annotationKind == normalized) {
         return;
     }
@@ -205,7 +211,7 @@ void Control::setAnnotationKind(const QString &kind)
 
 void Control::setAnnotationSeverity(const QString &severity)
 {
-    const QString normalized = normalizedSeverity(severity);
+    const QString normalized = m_labelingService.normalizedSeverity(severity);
     if (m_annotationSeverity == normalized) {
         return;
     }
@@ -216,7 +222,7 @@ void Control::setAnnotationSeverity(const QString &severity)
 
 void Control::setAnnotationSplit(const QString &split)
 {
-    const QString normalized = normalizedSplit(split);
+    const QString normalized = m_labelingService.normalizedSplit(split);
     if (m_annotationSplit == normalized) {
         return;
     }
@@ -232,7 +238,7 @@ void Control::setShowLabel(bool enabled)
     }
 
     m_showLabel = enabled;
-    m_config.saveAppValue(kShowLabelKey, m_showLabel);
+    m_systemService.saveAppValue(kShowLabelKey, m_showLabel);
     emit typeVisibilityChanged();
     emit currentPolygonsChanged();
 }
@@ -244,7 +250,7 @@ void Control::setShowPredict(bool enabled)
     }
 
     m_showPredict = enabled;
-    m_config.saveAppValue(kShowPredictKey, m_showPredict);
+    m_systemService.saveAppValue(kShowPredictKey, m_showPredict);
     emit typeVisibilityChanged();
     emit currentPolygonsChanged();
 }
@@ -256,20 +262,37 @@ void Control::setShowGood(bool enabled)
     }
 
     m_showGood = enabled;
-    m_config.saveAppValue(kShowGoodKey, m_showGood);
+    m_systemService.saveAppValue(kShowGoodKey, m_showGood);
     emit typeVisibilityChanged();
     emit currentPolygonsChanged();
 }
 
+QString Control::ioFolderPath() const
+{
+    return m_ioFolderPath;
+}
+
+void Control::setIoFolderPath(const QString &path)
+{
+    const QString normalized = normalizePath(path);
+    if (m_ioFolderPath == normalized) {
+        return;
+    }
+
+    m_ioFolderPath = normalized;
+    m_systemService.saveAppValue(kIoFolderPathKey, m_ioFolderPath);
+    emit ioFolderPathChanged();
+}
+
 bool Control::createNewProject(const QString &preferredName)
 {
-    if (!m_config.createProject(preferredName)) {
+    if (!m_systemService.createProject(preferredName)) {
         setStatus(QStringLiteral("Failed to create project"));
         return false;
     }
 
     resetState();
-    m_projectName = QFileInfo(m_config.projectFilePath()).completeBaseName();
+    m_projectName = QFileInfo(m_systemService.projectFilePath()).completeBaseName();
     m_classNames = {QStringLiteral("default")};
     m_currentClassName = m_classNames.first();
 
@@ -286,19 +309,19 @@ bool Control::createNewProject(const QString &preferredName)
     }
 
     saveSessionState();
-    setStatus(QStringLiteral("Project created: %1").arg(m_config.projectFilePath()));
+    setStatus(QStringLiteral("Project created: %1").arg(m_systemService.projectFilePath()));
     return true;
 }
 
 bool Control::loadProjectFile(const QVariant &projectFileUrlOrPath)
 {
     const QString path = normalizePath(projectFileUrlOrPath);
-    if (path.isEmpty() || !m_config.loadProject(path)) {
+    if (path.isEmpty() || !m_systemService.loadProject(path)) {
         setStatus(QStringLiteral("Failed to load project file"));
         return false;
     }
 
-    QFile file(m_config.projectFilePath());
+    QFile file(m_systemService.projectFilePath());
     if (!file.open(QIODevice::ReadOnly)) {
         setStatus(QStringLiteral("Failed to read project file"));
         return false;
@@ -345,9 +368,9 @@ bool Control::loadProjectFile(const QVariant &projectFileUrlOrPath)
             AnnotationData ann;
             ann.className = annObj.value(QStringLiteral("className")).toString();
             ann.remarks = annObj.value(QStringLiteral("remarks")).toString();
-            ann.kind = normalizedKind(annObj.value(QStringLiteral("kind")).toString());
-            ann.severity = normalizedSeverity(annObj.value(QStringLiteral("severity")).toString());
-            ann.split = normalizedSplit(annObj.value(QStringLiteral("split")).toString());
+            ann.kind = m_labelingService.normalizedKind(annObj.value(QStringLiteral("kind")).toString());
+            ann.severity = m_labelingService.normalizedSeverity(annObj.value(QStringLiteral("severity")).toString());
+            ann.split = m_labelingService.normalizedSplit(annObj.value(QStringLiteral("split")).toString());
 
             const QJsonArray pts = annObj.value(QStringLiteral("points")).toArray();
             for (const QJsonValue &ptVal : pts) {
@@ -363,7 +386,7 @@ bool Control::loadProjectFile(const QVariant &projectFileUrlOrPath)
         }
 
         if (!imageAnnotations.isEmpty()) {
-            m_annotations.insert(annotationKeyForPath(pathValue), imageAnnotations);
+            m_annotations.insert(m_labelingService.annotationKeyForPath(pathValue), imageAnnotations);
         }
     }
 
@@ -376,10 +399,10 @@ bool Control::loadProjectFile(const QVariant &projectFileUrlOrPath)
     emit selectedAnnotationClassNameChanged();
 
     const QString rememberedProject =
-        QFileInfo(m_config.loadAppValue(kLastProjectFileKey).toString()).absoluteFilePath();
+        QFileInfo(m_systemService.loadAppValue(kLastProjectFileKey).toString()).absoluteFilePath();
     int targetIndex = 0;
-    if (QFileInfo(m_config.projectFilePath()).absoluteFilePath() == rememberedProject) {
-        targetIndex = m_config.loadAppValue(kLastImageIndexKey, 0).toInt();
+    if (QFileInfo(m_systemService.projectFilePath()).absoluteFilePath() == rememberedProject) {
+        targetIndex = m_systemService.loadAppValue(kLastImageIndexKey, 0).toInt();
     }
 
     if (!m_imagePaths.isEmpty()) {
@@ -390,13 +413,13 @@ bool Control::loadProjectFile(const QVariant &projectFileUrlOrPath)
     }
 
     saveSessionState();
-    setStatus(QStringLiteral("Project loaded: %1").arg(m_config.projectFilePath()));
+    setStatus(QStringLiteral("Project loaded: %1").arg(m_systemService.projectFilePath()));
     return true;
 }
 
 bool Control::saveProjectAs(const QVariant &projectFileUrlOrPath)
 {
-    if (m_config.projectFilePath().isEmpty()) {
+    if (m_systemService.projectFilePath().isEmpty()) {
         setStatus(QStringLiteral("Create or load a project first"));
         return false;
     }
@@ -407,12 +430,12 @@ bool Control::saveProjectAs(const QVariant &projectFileUrlOrPath)
         return false;
     }
 
-    if (!m_config.createProject(newPath)) {
+    if (!m_systemService.createProject(newPath)) {
         setStatus(QStringLiteral("Failed to create target config"));
         return false;
     }
 
-    m_projectName = QFileInfo(m_config.projectFilePath()).completeBaseName();
+    m_projectName = QFileInfo(m_systemService.projectFilePath()).completeBaseName();
     emit projectChanged();
 
     if (!saveProjectData()) {
@@ -421,13 +444,13 @@ bool Control::saveProjectAs(const QVariant &projectFileUrlOrPath)
     }
 
     saveSessionState();
-    setStatus(QStringLiteral("Saved as: %1").arg(m_config.projectFilePath()));
+    setStatus(QStringLiteral("Saved as: %1").arg(m_systemService.projectFilePath()));
     return true;
 }
 
 bool Control::importImageFolder(const QVariant &folderUrlOrPath, bool clearExisting)
 {
-    if (m_config.projectFilePath().isEmpty()) {
+    if (m_systemService.projectFilePath().isEmpty()) {
         setStatus(QStringLiteral("Create or load a project first"));
         return false;
     }
@@ -461,11 +484,11 @@ bool Control::importImageFolder(const QVariant &folderUrlOrPath, bool clearExist
     while (it.hasNext()) {
         const QString path = it.next();
         const QString suffix = QStringLiteral(".") + QFileInfo(path).suffix().toLower();
-        if (!supportedExtensions().contains(suffix)) {
+        if (!m_labelingService.supportedExtensions().contains(suffix)) {
             continue;
         }
 
-        if (upsertImagePathByFilename(path, &importedCount, &updatedCount)) {
+        if (m_labelingService.upsertImagePathByFilename(m_imagePaths, path, &importedCount, &updatedCount)) {
             changed = true;
         }
     }
@@ -490,7 +513,7 @@ bool Control::importImageFolder(const QVariant &folderUrlOrPath, bool clearExist
 
 bool Control::importImageFiles(const QVariant &fileUrlList, bool clearExisting)
 {
-    if (m_config.projectFilePath().isEmpty()) {
+    if (m_systemService.projectFilePath().isEmpty()) {
         setStatus(QStringLiteral("Create or load a project first"));
         return false;
     }
@@ -530,11 +553,11 @@ bool Control::importImageFiles(const QVariant &fileUrlList, bool clearExisting)
         }
 
         const QString suffix = QStringLiteral(".") + QFileInfo(path).suffix().toLower();
-        if (!supportedExtensions().contains(suffix)) {
+        if (!m_labelingService.supportedExtensions().contains(suffix)) {
             continue;
         }
 
-        if (upsertImagePathByFilename(path, &importedCount, &updatedCount)) {
+        if (m_labelingService.upsertImagePathByFilename(m_imagePaths, path, &importedCount, &updatedCount)) {
             changed = true;
         }
     }
@@ -646,6 +669,380 @@ bool Control::previous10Images()
 
     const int prev = qMax(0, m_currentImageIndex - 10);
     return selectImage(prev);
+}
+
+QVariantList Control::imageSummaryList() const
+{
+    QVariantList list;
+    list.reserve(m_imagePaths.size());
+
+    for (int imageIndex = 0; imageIndex < m_imagePaths.size(); ++imageIndex) {
+        const QString &path = m_imagePaths.at(imageIndex);
+        const QList<AnnotationData> annList = m_annotations.value(m_labelingService.annotationKeyForPath(path));
+        int labelCount = 0;
+        int predictCount = 0;
+        int goodCount = 0;
+        for (const AnnotationData &ann : annList) {
+            const QString kind = m_labelingService.normalizedKind(ann.kind);
+            if (kind == QStringLiteral("predict")) {
+                ++predictCount;
+            } else if (kind == QStringLiteral("good")) {
+                ++goodCount;
+            } else {
+                ++labelCount;
+            }
+        }
+
+        QVariantMap row;
+        row.insert(QStringLiteral("imageIndex"), imageIndex);
+        row.insert(QStringLiteral("fileName"), QFileInfo(path).fileName());
+        row.insert(QStringLiteral("path"), path);
+        row.insert(QStringLiteral("labelCount"), labelCount);
+        row.insert(QStringLiteral("predictCount"), predictCount);
+        row.insert(QStringLiteral("goodCount"), goodCount);
+        list.push_back(row);
+    }
+
+    return list;
+}
+
+QVariantList Control::annotationListForCurrentImage() const
+{
+    QVariantList list;
+    if (m_currentImageIndex < 0 || m_currentImageIndex >= m_imagePaths.size()) {
+        return list;
+    }
+
+    const QString path = m_imagePaths.at(m_currentImageIndex);
+    const QString fileName = QFileInfo(path).fileName();
+    const QList<AnnotationData> annList = m_annotations.value(m_labelingService.annotationKeyForPath(path));
+    list.reserve(annList.size());
+
+    for (int annIndex = 0; annIndex < annList.size(); ++annIndex) {
+        const AnnotationData &ann = annList.at(annIndex);
+        QVariantMap row;
+        row.insert(QStringLiteral("imageIndex"), m_currentImageIndex);
+        row.insert(QStringLiteral("annotationIndex"), annIndex);
+        row.insert(QStringLiteral("imageFileName"), fileName);
+        row.insert(QStringLiteral("className"), ann.className);
+        row.insert(QStringLiteral("type"), m_labelingService.normalizedKind(ann.kind));
+        row.insert(QStringLiteral("level"), m_labelingService.normalizedSeverity(ann.severity));
+        row.insert(QStringLiteral("split"), m_labelingService.normalizedSplit(ann.split));
+        row.insert(QStringLiteral("remarks"), ann.remarks);
+        list.push_back(row);
+    }
+
+    return list;
+}
+
+QVariantList Control::annotationListForAllImages() const
+{
+    QVariantList list;
+    for (int imageIndex = 0; imageIndex < m_imagePaths.size(); ++imageIndex) {
+        const QString &path = m_imagePaths.at(imageIndex);
+        const QString fileName = QFileInfo(path).fileName();
+        const QList<AnnotationData> annList = m_annotations.value(m_labelingService.annotationKeyForPath(path));
+        for (int annIndex = 0; annIndex < annList.size(); ++annIndex) {
+            const AnnotationData &ann = annList.at(annIndex);
+            QVariantMap row;
+            row.insert(QStringLiteral("imageIndex"), imageIndex);
+            row.insert(QStringLiteral("annotationIndex"), annIndex);
+            row.insert(QStringLiteral("imageFileName"), fileName);
+            row.insert(QStringLiteral("className"), ann.className);
+            row.insert(QStringLiteral("type"), m_labelingService.normalizedKind(ann.kind));
+            row.insert(QStringLiteral("level"), m_labelingService.normalizedSeverity(ann.severity));
+            row.insert(QStringLiteral("split"), m_labelingService.normalizedSplit(ann.split));
+            row.insert(QStringLiteral("remarks"), ann.remarks);
+            list.push_back(row);
+        }
+    }
+
+    return list;
+}
+
+bool Control::selectAnnotationFromList(int imageIndex, int annotationIndex)
+{
+    if (!selectImage(imageIndex)) {
+        return false;
+    }
+
+    setSelectedPolygonIndex(annotationIndex);
+    if (m_selectedPolygonIndex != annotationIndex) {
+        setStatus(QStringLiteral("Annotation index out of range"));
+        return false;
+    }
+
+    return true;
+}
+
+bool Control::importClassificationFromFolder(const QVariant &folderUrlOrPath, bool clearExisting)
+{
+    if (m_systemService.projectFilePath().isEmpty()) {
+        setStatus(QStringLiteral("Create or load a project first"));
+        return false;
+    }
+
+    const QString rootFolder = normalizePath(folderUrlOrPath);
+    QDir baseDir(rootFolder);
+    if (!baseDir.exists()) {
+        setStatus(QStringLiteral("Classification folder does not exist"));
+        return false;
+    }
+
+    setIoFolderPath(rootFolder);
+
+    if (clearExisting) {
+        m_imagePaths.clear();
+        m_annotations.clear();
+        m_currentImageIndex = -1;
+        m_draftPoints.clear();
+        m_selectedPolygonIndex = -1;
+        emit draftPointsChanged();
+        emit currentImageChanged();
+        emit currentPolygonsChanged();
+        emit selectedPolygonIndexChanged();
+        emit selectedAnnotationClassNameChanged();
+        resetAnnotationFieldsToDefault();
+    }
+
+    int addedImages = 0;
+    int updatedImages = 0;
+    int labeledImages = 0;
+    bool changed = false;
+    bool classesChanged = false;
+
+    const QFileInfoList classDirs =
+        baseDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::Readable, QDir::Name | QDir::IgnoreCase);
+
+    QList<QPair<QString, QString>> classSources;
+    for (const QFileInfo &classDirInfo : classDirs) {
+        classSources.push_back(qMakePair(classDirInfo.fileName().trimmed(), classDirInfo.absoluteFilePath()));
+    }
+
+    // Also allow selecting a single class folder directly (images in selected folder root).
+    const QFileInfoList rootFiles =
+        baseDir.entryInfoList(QDir::Files | QDir::NoSymLinks | QDir::Readable, QDir::Name | QDir::IgnoreCase);
+    bool hasSupportedRootImage = false;
+    for (const QFileInfo &fileInfo : rootFiles) {
+        const QString suffix = QStringLiteral(".") + fileInfo.suffix().toLower();
+        if (m_labelingService.supportedExtensions().contains(suffix)) {
+            hasSupportedRootImage = true;
+            break;
+        }
+    }
+    if (classSources.isEmpty() && hasSupportedRootImage) {
+        const QString directClassName = baseDir.dirName().trimmed().isEmpty() ? QStringLiteral("default")
+                                                                               : baseDir.dirName().trimmed();
+        classSources.push_back(qMakePair(directClassName, baseDir.absolutePath()));
+    }
+
+    if (classSources.isEmpty()) {
+        setStatus(QStringLiteral("No class folders found. Expected: <root>/<class_name>/*.png"));
+        return false;
+    }
+
+    for (const auto &classSource : classSources) {
+        const QString className = classSource.first;
+        if (className.isEmpty()) {
+            continue;
+        }
+
+        if (!m_classNames.contains(className)) {
+            m_classNames.push_back(className);
+            classesChanged = true;
+        }
+
+        QDirIterator it(classSource.second,
+                        QDir::Files | QDir::NoSymLinks,
+                        QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            const QString imagePath = it.next();
+            const QString suffix = QStringLiteral(".") + QFileInfo(imagePath).suffix().toLower();
+            if (!m_labelingService.supportedExtensions().contains(suffix)) {
+                continue;
+            }
+
+            const bool pathListChanged = m_labelingService.upsertImagePathByFilename(
+                m_imagePaths, imagePath, &addedImages, &updatedImages);
+            if (!pathListChanged && !m_imagePaths.contains(imagePath)) {
+                continue;
+            }
+
+            const QString annotationKey = m_labelingService.annotationKeyForPath(imagePath);
+            QImageReader reader(imagePath);
+            const QSize imageSize = reader.size();
+            if (imageSize.width() <= 0 || imageSize.height() <= 0) {
+                continue;
+            }
+
+            const qreal left = 0.0;
+            const qreal top = 0.0;
+            const qreal right = qMax<qreal>(0.0, imageSize.width() - 1.0);
+            const qreal bottom = qMax<qreal>(0.0, imageSize.height() - 1.0);
+
+            AnnotationData ann;
+            ann.className = className;
+            ann.kind = QStringLiteral("label");
+            ann.severity = QStringLiteral("normal");
+            ann.split = QStringLiteral("none");
+            ann.points = {
+                QPointF(left, top),
+                QPointF(right, top),
+                QPointF(right, bottom),
+                QPointF(left, bottom),
+                QPointF(left, top)
+            };
+
+            QList<AnnotationData> &annList = m_annotations[annotationKey];
+            bool alreadyExists = false;
+            const QList<AnnotationData> existingAnnotations = annList;
+            for (const AnnotationData &existing : existingAnnotations) {
+                if (existing.className != ann.className || existing.points.size() != ann.points.size()) {
+                    continue;
+                }
+
+                bool samePoints = true;
+                for (int i = 0; i < existing.points.size(); ++i) {
+                    if (existing.points.at(i) != ann.points.at(i)) {
+                        samePoints = false;
+                        break;
+                    }
+                }
+                if (samePoints) {
+                    alreadyExists = true;
+                    break;
+                }
+            }
+
+            if (!alreadyExists) {
+                if (clearExisting) {
+                    // Replace mode already cleared all annotations before import.
+                    annList = {ann};
+                } else {
+                    // Append mode keeps existing annotations and adds imported classification.
+                    annList.push_back(ann);
+                }
+                ++labeledImages;
+                changed = true;
+            }
+        }
+    }
+
+    if (!changed && !classesChanged) {
+        setStatus(QStringLiteral("No classification images imported"));
+        return false;
+    }
+
+    if (classesChanged) {
+        emit classNamesChanged();
+    }
+    emit imagePathsChanged();
+
+    if (m_currentImageIndex < 0 && !m_imagePaths.isEmpty()) {
+        selectImage(0);
+    } else if (m_currentImageIndex >= 0 && m_currentImageIndex < m_imagePaths.size()) {
+        loadImageToView(m_imagePaths.at(m_currentImageIndex));
+        emit currentPolygonsChanged();
+    }
+
+    if (!saveProjectData()) {
+        setStatus(QStringLiteral("Classification import completed, but save failed"));
+        return false;
+    }
+
+    saveLastImageIndex();
+    setStatus(QStringLiteral("Classification import: %1 added, %2 updated, %3 labeled")
+                  .arg(addedImages)
+                  .arg(updatedImages)
+                  .arg(labeledImages));
+    return true;
+}
+
+bool Control::exportClassificationToFolder(const QVariant &folderUrlOrPath)
+{
+    if (m_systemService.projectFilePath().isEmpty()) {
+        setStatus(QStringLiteral("Create or load a project first"));
+        return false;
+    }
+
+    const QString folderPath = normalizePath(folderUrlOrPath);
+    if (folderPath.isEmpty()) {
+        setStatus(QStringLiteral("Select a folder first"));
+        return false;
+    }
+
+    QDir dir(folderPath);
+    if (!dir.exists() && !dir.mkpath(QStringLiteral("."))) {
+        setStatus(QStringLiteral("Failed to create export folder"));
+        return false;
+    }
+
+    setIoFolderPath(folderPath);
+
+    int exportedFiles = 0;
+    int skippedFiles = 0;
+
+    for (const QString &imagePath : m_imagePaths) {
+        const QFileInfo srcInfo(imagePath);
+        if (!srcInfo.exists() || !srcInfo.isFile()) {
+            ++skippedFiles;
+            continue;
+        }
+
+        const QList<AnnotationData> annList = m_annotations.value(m_labelingService.annotationKeyForPath(imagePath));
+        QSet<QString> classesForImage;
+        for (const AnnotationData &ann : annList) {
+            const QString cls = ann.className.trimmed();
+            if (!cls.isEmpty()) {
+                classesForImage.insert(cls);
+            }
+        }
+
+        if (classesForImage.isEmpty()) {
+            ++skippedFiles;
+            continue;
+        }
+
+        for (const QString &className : classesForImage) {
+            if (!dir.mkpath(className)) {
+                ++skippedFiles;
+                continue;
+            }
+
+            const QString classDirPath = dir.filePath(className);
+            const QString baseName = srcInfo.completeBaseName();
+            const QString suffix = srcInfo.suffix();
+
+            QString targetFilePath = QDir(classDirPath).filePath(srcInfo.fileName());
+            if (QFileInfo::exists(targetFilePath)) {
+                int serial = 1;
+                do {
+                    const QString candidateName =
+                        suffix.isEmpty()
+                            ? QStringLiteral("%1_%2").arg(baseName).arg(serial)
+                            : QStringLiteral("%1_%2.%3").arg(baseName).arg(serial).arg(suffix);
+                    targetFilePath = QDir(classDirPath).filePath(candidateName);
+                    ++serial;
+                } while (QFileInfo::exists(targetFilePath));
+            }
+
+            if (QFile::copy(imagePath, targetFilePath)) {
+                ++exportedFiles;
+            } else {
+                ++skippedFiles;
+            }
+        }
+    }
+
+    if (exportedFiles == 0) {
+        setStatus(QStringLiteral("No classification images exported"));
+        return false;
+    }
+
+    setStatus(QStringLiteral("Classification export: %1 files exported, %2 skipped")
+                  .arg(exportedFiles)
+                  .arg(skippedFiles));
+    return true;
 }
 
 bool Control::addClassName(const QString &name)
@@ -816,7 +1213,7 @@ bool Control::deleteSelectedAnnotation()
         return false;
     }
 
-    const QString key = annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
+    const QString key = m_labelingService.annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
     auto it = m_annotations.find(key);
     if (it == m_annotations.end()) {
         setStatus(QStringLiteral("No annotation selected"));
@@ -865,7 +1262,7 @@ bool Control::updateAnnotationPoint(int polygonIndex, int pointIndex, qreal x, q
         return false;
     }
 
-    const QString key = annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
+    const QString key = m_labelingService.annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
     auto it = m_annotations.find(key);
     if (it == m_annotations.end()) {
         return false;
@@ -911,7 +1308,7 @@ bool Control::updateSelectedAnnotationClassName(const QString &className)
         return false;
     }
 
-    const QString key = annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
+    const QString key = m_labelingService.annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
     auto it = m_annotations.find(key);
     if (it == m_annotations.end() || m_selectedPolygonIndex >= it.value().size()) {
         setStatus(QStringLiteral("No annotation selected"));
@@ -959,7 +1356,7 @@ bool Control::updateSelectedAnnotationDetails(const QString &className)
         return false;
     }
 
-    const QString key = annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
+    const QString key = m_labelingService.annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
     auto it = m_annotations.find(key);
     if (it == m_annotations.end() || m_selectedPolygonIndex >= it.value().size()) {
         setStatus(QStringLiteral("No annotation selected"));
@@ -969,9 +1366,9 @@ bool Control::updateSelectedAnnotationDetails(const QString &className)
     AnnotationData &ann = it.value()[m_selectedPolygonIndex];
     ann.className = trimmedClass;
     ann.remarks = m_annotationRemarks;
-    ann.kind = normalizedKind(m_annotationKind);
-    ann.severity = normalizedSeverity(m_annotationSeverity);
-    ann.split = normalizedSplit(m_annotationSplit);
+    ann.kind = m_labelingService.normalizedKind(m_annotationKind);
+    ann.severity = m_labelingService.normalizedSeverity(m_annotationSeverity);
+    ann.split = m_labelingService.normalizedSplit(m_annotationSplit);
 
     emit currentPolygonsChanged();
     emit selectedAnnotationClassNameChanged();
@@ -1027,9 +1424,9 @@ bool Control::saveCurrentAnnotation()
     AnnotationData ann;
     ann.className = m_currentClassName;
     ann.remarks = m_annotationRemarks;
-    ann.kind = normalizedKind(m_annotationKind);
-    ann.severity = normalizedSeverity(m_annotationSeverity);
-    ann.split = normalizedSplit(m_annotationSplit);
+    ann.kind = m_labelingService.normalizedKind(m_annotationKind);
+    ann.severity = m_labelingService.normalizedSeverity(m_annotationSeverity);
+    ann.split = m_labelingService.normalizedSplit(m_annotationSplit);
     ann.points = m_draftPoints;
 
     // Ensure the polygon is explicitly closed when saved.
@@ -1037,7 +1434,7 @@ bool Control::saveCurrentAnnotation()
         ann.points.push_back(ann.points.first());
     }
 
-    const QString key = annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
+    const QString key = m_labelingService.annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
     m_annotations[key].push_back(ann);
     m_selectedPolygonIndex = m_annotations[key].size() - 1;
     emit selectedPolygonIndexChanged();
@@ -1084,108 +1481,7 @@ QImage Control::matToQImage(const cv::Mat &mat)
 
 QString Control::normalizePath(const QVariant &urlOrPath)
 {
-    if (!urlOrPath.isValid()) {
-        return QString();
-    }
-
-    if (urlOrPath.canConvert<QUrl>()) {
-        const QUrl url = urlOrPath.toUrl();
-        if (url.isValid() && url.isLocalFile()) {
-            return url.toLocalFile();
-        }
-    }
-
-    const QString asString = urlOrPath.toString().trimmed();
-    if (asString.isEmpty()) {
-        return QString();
-    }
-
-    const QUrl url(asString);
-    if (url.isValid() && url.isLocalFile()) {
-        return url.toLocalFile();
-    }
-
-    return asString;
-}
-
-QStringList Control::supportedExtensions()
-{
-    return {
-        QStringLiteral(".png"),
-        QStringLiteral(".jpg"),
-        QStringLiteral(".jpeg"),
-        QStringLiteral(".bmp"),
-        QStringLiteral(".tif"),
-        QStringLiteral(".tiff")
-    };
-}
-
-QString Control::annotationKeyForPath(const QString &path)
-{
-    return QFileInfo(path).fileName().toLower();
-}
-
-QString Control::normalizedKind(const QString &kind)
-{
-    const QString value = kind.trimmed().toLower();
-    if (value == QStringLiteral("predict") || value == QStringLiteral("good")) {
-        return value;
-    }
-
-    return QStringLiteral("label");
-}
-
-QString Control::normalizedSeverity(const QString &severity)
-{
-    const QString value = severity.trimmed().toLower();
-    if (value == QStringLiteral("serious") || value == QStringLiteral("marginal")) {
-        return value;
-    }
-
-    return QStringLiteral("normal");
-}
-
-QString Control::normalizedSplit(const QString &split)
-{
-    const QString value = split.trimmed().toLower();
-    if (value == QStringLiteral("train") || value == QStringLiteral("val") || value == QStringLiteral("test")) {
-        return value;
-    }
-
-    return QStringLiteral("none");
-}
-
-bool Control::upsertImagePathByFilename(const QString &path, int *addedCount, int *updatedCount)
-{
-    const QString newFileName = QFileInfo(path).fileName();
-    if (newFileName.isEmpty()) {
-        return false;
-    }
-
-    if (m_imagePaths.contains(path)) {
-        return false;
-    }
-
-    for (int i = 0; i < m_imagePaths.size(); ++i) {
-        const QString existingPath = m_imagePaths.at(i);
-        const QString existingFileName = QFileInfo(existingPath).fileName();
-        if (existingFileName.compare(newFileName, Qt::CaseInsensitive) != 0) {
-            continue;
-        }
-
-        m_imagePaths[i] = path;
-
-        if (updatedCount) {
-            ++(*updatedCount);
-        }
-        return true;
-    }
-
-    m_imagePaths.push_back(path);
-    if (addedCount) {
-        ++(*addedCount);
-    }
-    return true;
+    return SystemService::normalizePath(urlOrPath);
 }
 
 bool Control::loadImageToView(const QString &path)
@@ -1219,7 +1515,7 @@ void Control::setStatus(const QString &status)
 
 bool Control::saveProjectData()
 {
-    if (m_config.projectFilePath().isEmpty()) {
+    if (m_systemService.projectFilePath().isEmpty()) {
         return false;
     }
 
@@ -1238,7 +1534,7 @@ bool Control::saveProjectData()
         imgObj.insert(QStringLiteral("path"), path);
 
         QJsonArray anns;
-        const QList<AnnotationData> annList = m_annotations.value(annotationKeyForPath(path));
+        const QList<AnnotationData> annList = m_annotations.value(m_labelingService.annotationKeyForPath(path));
         for (const AnnotationData &ann : annList) {
             QJsonObject annObj;
             annObj.insert(QStringLiteral("className"), ann.className);
@@ -1265,14 +1561,14 @@ bool Control::saveProjectData()
 
     root.insert(QStringLiteral("images"), images);
 
-    return m_config.saveProject(root);
+    return m_systemService.saveProject(root);
 }
 
 void Control::setAnnotationFields(const QString &remarks, const QString &kind, const QString &severity, const QString &split)
 {
-    const QString normalizedK = normalizedKind(kind);
-    const QString normalizedS = normalizedSeverity(severity);
-    const QString normalizedSp = normalizedSplit(split);
+    const QString normalizedK = m_labelingService.normalizedKind(kind);
+    const QString normalizedS = m_labelingService.normalizedSeverity(severity);
+    const QString normalizedSp = m_labelingService.normalizedSplit(split);
     if (m_annotationRemarks == remarks && m_annotationKind == normalizedK && m_annotationSeverity == normalizedS
         && m_annotationSplit == normalizedSp) {
         return;
@@ -1292,18 +1588,18 @@ void Control::resetAnnotationFieldsToDefault()
 
 void Control::saveSessionState() const
 {
-    m_config.saveAppValue(kLastProjectFileKey, m_config.projectFilePath());
-    m_config.saveAppValue(kLastImageIndexKey, m_currentImageIndex);
+    m_systemService.saveAppValue(kLastProjectFileKey, m_systemService.projectFilePath());
+    m_systemService.saveAppValue(kLastImageIndexKey, m_currentImageIndex);
 }
 
 void Control::saveLastImageIndex() const
 {
-    m_config.saveAppValue(kLastImageIndexKey, m_currentImageIndex);
+    m_systemService.saveAppValue(kLastImageIndexKey, m_currentImageIndex);
 }
 
 bool Control::restoreLastSession()
 {
-    const QString lastProject = m_config.loadAppValue(kLastProjectFileKey).toString();
+    const QString lastProject = m_systemService.loadAppValue(kLastProjectFileKey).toString();
     if (lastProject.trimmed().isEmpty()) {
         return false;
     }
@@ -1317,7 +1613,7 @@ QList<Control::AnnotationData> Control::currentImageAnnotations() const
         return {};
     }
 
-    return m_annotations.value(annotationKeyForPath(m_imagePaths.at(m_currentImageIndex)));
+    return m_annotations.value(m_labelingService.annotationKeyForPath(m_imagePaths.at(m_currentImageIndex)));
 }
 
 void Control::resetState()

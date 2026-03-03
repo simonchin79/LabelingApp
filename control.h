@@ -12,7 +12,10 @@
 #include <QVariantList>
 #include <QVector>
 
-#include "config.h"
+#include "inferenceservice.h"
+#include "labelingservice.h"
+#include "systemservice.h"
+#include "trainservice.h"
 
 namespace cv {
 class Mat;
@@ -41,6 +44,7 @@ class Control : public QObject
     Q_PROPERTY(bool showLabel READ showLabel WRITE setShowLabel NOTIFY typeVisibilityChanged)
     Q_PROPERTY(bool showPredict READ showPredict WRITE setShowPredict NOTIFY typeVisibilityChanged)
     Q_PROPERTY(bool showGood READ showGood WRITE setShowGood NOTIFY typeVisibilityChanged)
+    Q_PROPERTY(QString ioFolderPath READ ioFolderPath WRITE setIoFolderPath NOTIFY ioFolderPathChanged)
 
 public:
     explicit Control(QObject *parent = nullptr);
@@ -72,6 +76,8 @@ public:
     void setShowLabel(bool enabled);
     void setShowPredict(bool enabled);
     void setShowGood(bool enabled);
+    QString ioFolderPath() const;
+    void setIoFolderPath(const QString &path);
 
     Q_INVOKABLE bool createNewProject(const QString &preferredName);
     Q_INVOKABLE bool loadProjectFile(const QVariant &projectFileUrlOrPath);
@@ -86,6 +92,12 @@ public:
     Q_INVOKABLE bool previousImage();
     Q_INVOKABLE bool next10Images();
     Q_INVOKABLE bool previous10Images();
+    Q_INVOKABLE QVariantList imageSummaryList() const;
+    Q_INVOKABLE QVariantList annotationListForCurrentImage() const;
+    Q_INVOKABLE QVariantList annotationListForAllImages() const;
+    Q_INVOKABLE bool selectAnnotationFromList(int imageIndex, int annotationIndex);
+    Q_INVOKABLE bool importClassificationFromFolder(const QVariant &folderUrlOrPath, bool clearExisting);
+    Q_INVOKABLE bool exportClassificationToFolder(const QVariant &folderUrlOrPath);
 
     Q_INVOKABLE bool addClassName(const QString &name);
     Q_INVOKABLE bool deleteClassName(const QString &name);
@@ -116,6 +128,7 @@ signals:
     void selectedAnnotationClassNameChanged();
     void annotationFieldsChanged();
     void typeVisibilityChanged();
+    void ioFolderPathChanged();
     void imageReady(const QImage &image);
 
 private:
@@ -130,13 +143,6 @@ private:
 
     static QImage matToQImage(const cv::Mat &mat);
     static QString normalizePath(const QVariant &urlOrPath);
-    static QStringList supportedExtensions();
-    static QString annotationKeyForPath(const QString &path);
-    static QString normalizedKind(const QString &kind);
-    static QString normalizedSeverity(const QString &severity);
-    static QString normalizedSplit(const QString &split);
-
-    bool upsertImagePathByFilename(const QString &path, int *addedCount, int *updatedCount);
     bool loadImageToView(const QString &path);
     void setStatus(const QString &status);
     bool saveProjectData();
@@ -148,7 +154,10 @@ private:
     QList<AnnotationData> currentImageAnnotations() const;
     void resetState();
 
-    Config m_config;
+    SystemService m_systemService;
+    LabelingService m_labelingService;
+    TrainService m_trainService;
+    InferenceService m_inferenceService;
     QString m_status;
     QString m_projectName;
     QStringList m_imagePaths;
@@ -162,6 +171,7 @@ private:
     bool m_showLabel = true;
     bool m_showPredict = true;
     bool m_showGood = true;
+    QString m_ioFolderPath;
     QVector<QPointF> m_draftPoints;
     QHash<QString, QList<AnnotationData>> m_annotations;
     int m_selectedPolygonIndex = -1;
