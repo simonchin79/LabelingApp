@@ -22,6 +22,186 @@ const QString kShowLabelKey = QStringLiteral("ui/showLabel");
 const QString kShowPredictKey = QStringLiteral("ui/showPredict");
 const QString kShowGoodKey = QStringLiteral("ui/showGood");
 const QString kIoFolderPathKey = QStringLiteral("io/lastFolderPath");
+
+enum class ProjectTask {
+    Unknown,
+    Create,
+    Load,
+    SaveAs
+};
+
+enum class ImageTask {
+    Unknown,
+    ImportFolder,
+    ImportFiles,
+    Select,
+    First,
+    Last,
+    Next,
+    Previous,
+    Next10,
+    Previous10
+};
+
+enum class IoTask {
+    Unknown,
+    SetFolder,
+    SetVisibility,
+    ImportClassification,
+    ExportClassification
+};
+
+enum class AnnotationTask {
+    Unknown,
+    StartNew,
+    AddClass,
+    DeleteClass,
+    SetCurrentClass,
+    SetField,
+    SetKind,
+    SetSeverity,
+    SetSplit,
+    SetRemarks,
+    AddPoint,
+    UpdateDraftPoint,
+    Save,
+    Undo,
+    Clear,
+    Select,
+    Delete,
+    UpdateClass,
+    UpdateDetails,
+    UpdatePoint,
+    SelectFromList
+};
+
+ProjectTask toProjectTask(const QString &task)
+{
+    if (task == QStringLiteral("create")) {
+        return ProjectTask::Create;
+    }
+    if (task == QStringLiteral("load")) {
+        return ProjectTask::Load;
+    }
+    if (task == QStringLiteral("save_as")) {
+        return ProjectTask::SaveAs;
+    }
+    return ProjectTask::Unknown;
+}
+
+ImageTask toImageTask(const QString &task)
+{
+    if (task == QStringLiteral("import_folder")) {
+        return ImageTask::ImportFolder;
+    }
+    if (task == QStringLiteral("import_files")) {
+        return ImageTask::ImportFiles;
+    }
+    if (task == QStringLiteral("select")) {
+        return ImageTask::Select;
+    }
+    if (task == QStringLiteral("first")) {
+        return ImageTask::First;
+    }
+    if (task == QStringLiteral("last")) {
+        return ImageTask::Last;
+    }
+    if (task == QStringLiteral("next")) {
+        return ImageTask::Next;
+    }
+    if (task == QStringLiteral("prev")) {
+        return ImageTask::Previous;
+    }
+    if (task == QStringLiteral("next10")) {
+        return ImageTask::Next10;
+    }
+    if (task == QStringLiteral("prev10")) {
+        return ImageTask::Previous10;
+    }
+    return ImageTask::Unknown;
+}
+
+IoTask toIoTask(const QString &task)
+{
+    if (task == QStringLiteral("set_folder")) {
+        return IoTask::SetFolder;
+    }
+    if (task == QStringLiteral("set_visibility")) {
+        return IoTask::SetVisibility;
+    }
+    if (task == QStringLiteral("import_classification")) {
+        return IoTask::ImportClassification;
+    }
+    if (task == QStringLiteral("export_classification")) {
+        return IoTask::ExportClassification;
+    }
+    return IoTask::Unknown;
+}
+
+AnnotationTask toAnnotationTask(const QString &task)
+{
+    if (task == QStringLiteral("start_new")) {
+        return AnnotationTask::StartNew;
+    }
+    if (task == QStringLiteral("add_class")) {
+        return AnnotationTask::AddClass;
+    }
+    if (task == QStringLiteral("delete_class")) {
+        return AnnotationTask::DeleteClass;
+    }
+    if (task == QStringLiteral("set_current_class")) {
+        return AnnotationTask::SetCurrentClass;
+    }
+    if (task == QStringLiteral("set_field")) {
+        return AnnotationTask::SetField;
+    }
+    if (task == QStringLiteral("set_kind")) {
+        return AnnotationTask::SetKind;
+    }
+    if (task == QStringLiteral("set_severity")) {
+        return AnnotationTask::SetSeverity;
+    }
+    if (task == QStringLiteral("set_split")) {
+        return AnnotationTask::SetSplit;
+    }
+    if (task == QStringLiteral("set_remarks")) {
+        return AnnotationTask::SetRemarks;
+    }
+    if (task == QStringLiteral("add_point")) {
+        return AnnotationTask::AddPoint;
+    }
+    if (task == QStringLiteral("update_draft_point")) {
+        return AnnotationTask::UpdateDraftPoint;
+    }
+    if (task == QStringLiteral("save")) {
+        return AnnotationTask::Save;
+    }
+    if (task == QStringLiteral("undo")) {
+        return AnnotationTask::Undo;
+    }
+    if (task == QStringLiteral("clear")) {
+        return AnnotationTask::Clear;
+    }
+    if (task == QStringLiteral("select")) {
+        return AnnotationTask::Select;
+    }
+    if (task == QStringLiteral("delete")) {
+        return AnnotationTask::Delete;
+    }
+    if (task == QStringLiteral("update_class")) {
+        return AnnotationTask::UpdateClass;
+    }
+    if (task == QStringLiteral("update_details")) {
+        return AnnotationTask::UpdateDetails;
+    }
+    if (task == QStringLiteral("update_point")) {
+        return AnnotationTask::UpdatePoint;
+    }
+    if (task == QStringLiteral("select_from_list")) {
+        return AnnotationTask::SelectFromList;
+    }
+    return AnnotationTask::Unknown;
+}
 }
 
 Control::Control(QObject *parent)
@@ -31,6 +211,20 @@ Control::Control(QObject *parent)
     , m_trainService(this)
     , m_inferenceService(this)
 {
+    connect(this, &Control::statusChanged, this, &Control::uiStateChanged);
+    connect(this, &Control::projectChanged, this, &Control::uiStateChanged);
+    connect(this, &Control::imagePathsChanged, this, &Control::uiStateChanged);
+    connect(this, &Control::currentImageChanged, this, &Control::uiStateChanged);
+    connect(this, &Control::classNamesChanged, this, &Control::uiStateChanged);
+    connect(this, &Control::currentClassNameChanged, this, &Control::uiStateChanged);
+    connect(this, &Control::draftPointsChanged, this, &Control::uiStateChanged);
+    connect(this, &Control::currentPolygonsChanged, this, &Control::uiStateChanged);
+    connect(this, &Control::selectedPolygonIndexChanged, this, &Control::uiStateChanged);
+    connect(this, &Control::selectedAnnotationClassNameChanged, this, &Control::uiStateChanged);
+    connect(this, &Control::annotationFieldsChanged, this, &Control::uiStateChanged);
+    connect(this, &Control::typeVisibilityChanged, this, &Control::uiStateChanged);
+    connect(this, &Control::ioFolderPathChanged, this, &Control::uiStateChanged);
+
     m_status = QStringLiteral("Create a project to start labeling");
     m_showLabel = m_systemService.loadAppValue(kShowLabelKey, true).toBool();
     m_showPredict = m_systemService.loadAppValue(kShowPredictKey, true).toBool();
@@ -41,36 +235,6 @@ Control::Control(QObject *parent)
     }
 }
 
-QString Control::status() const
-{
-    return m_status;
-}
-
-QString Control::projectName() const
-{
-    return m_projectName;
-}
-
-QString Control::projectFilePath() const
-{
-    return m_systemService.projectFilePath();
-}
-
-QStringList Control::imagePaths() const
-{
-    return m_imagePaths;
-}
-
-int Control::imageCount() const
-{
-    return m_imagePaths.size();
-}
-
-int Control::currentImageIndex() const
-{
-    return m_currentImageIndex;
-}
-
 QString Control::currentImagePath() const
 {
     if (m_currentImageIndex < 0 || m_currentImageIndex >= m_imagePaths.size()) {
@@ -78,16 +242,6 @@ QString Control::currentImagePath() const
     }
 
     return m_imagePaths.at(m_currentImageIndex);
-}
-
-QStringList Control::classNames() const
-{
-    return m_classNames;
-}
-
-QString Control::currentClassName() const
-{
-    return m_currentClassName;
 }
 
 QVariantList Control::draftPoints() const
@@ -138,11 +292,6 @@ QVariantList Control::currentPolygons() const
     return polygons;
 }
 
-int Control::selectedPolygonIndex() const
-{
-    return m_selectedPolygonIndex;
-}
-
 QString Control::selectedAnnotationClassName() const
 {
     const QList<AnnotationData> annList = currentImageAnnotations();
@@ -151,125 +300,6 @@ QString Control::selectedAnnotationClassName() const
     }
 
     return annList.at(m_selectedPolygonIndex).className;
-}
-
-QString Control::annotationRemarks() const
-{
-    return m_annotationRemarks;
-}
-
-QString Control::annotationKind() const
-{
-    return m_annotationKind;
-}
-
-QString Control::annotationSeverity() const
-{
-    return m_annotationSeverity;
-}
-
-QString Control::annotationSplit() const
-{
-    return m_annotationSplit;
-}
-
-bool Control::showLabel() const
-{
-    return m_showLabel;
-}
-
-bool Control::showPredict() const
-{
-    return m_showPredict;
-}
-
-bool Control::showGood() const
-{
-    return m_showGood;
-}
-
-void Control::setAnnotationRemarks(const QString &remarks)
-{
-    if (m_annotationRemarks == remarks) {
-        return;
-    }
-
-    m_annotationRemarks = remarks;
-    emit annotationFieldsChanged();
-}
-
-void Control::setAnnotationKind(const QString &kind)
-{
-    const QString normalized = m_labelingService.normalizedKind(kind);
-    if (m_annotationKind == normalized) {
-        return;
-    }
-
-    m_annotationKind = normalized;
-    emit annotationFieldsChanged();
-}
-
-void Control::setAnnotationSeverity(const QString &severity)
-{
-    const QString normalized = m_labelingService.normalizedSeverity(severity);
-    if (m_annotationSeverity == normalized) {
-        return;
-    }
-
-    m_annotationSeverity = normalized;
-    emit annotationFieldsChanged();
-}
-
-void Control::setAnnotationSplit(const QString &split)
-{
-    const QString normalized = m_labelingService.normalizedSplit(split);
-    if (m_annotationSplit == normalized) {
-        return;
-    }
-
-    m_annotationSplit = normalized;
-    emit annotationFieldsChanged();
-}
-
-void Control::setShowLabel(bool enabled)
-{
-    if (m_showLabel == enabled) {
-        return;
-    }
-
-    m_showLabel = enabled;
-    m_systemService.saveAppValue(kShowLabelKey, m_showLabel);
-    emit typeVisibilityChanged();
-    emit currentPolygonsChanged();
-}
-
-void Control::setShowPredict(bool enabled)
-{
-    if (m_showPredict == enabled) {
-        return;
-    }
-
-    m_showPredict = enabled;
-    m_systemService.saveAppValue(kShowPredictKey, m_showPredict);
-    emit typeVisibilityChanged();
-    emit currentPolygonsChanged();
-}
-
-void Control::setShowGood(bool enabled)
-{
-    if (m_showGood == enabled) {
-        return;
-    }
-
-    m_showGood = enabled;
-    m_systemService.saveAppValue(kShowGoodKey, m_showGood);
-    emit typeVisibilityChanged();
-    emit currentPolygonsChanged();
-}
-
-QString Control::ioFolderPath() const
-{
-    return m_ioFolderPath;
 }
 
 void Control::setIoFolderPath(const QString &path)
@@ -284,234 +314,274 @@ void Control::setIoFolderPath(const QString &path)
     emit ioFolderPathChanged();
 }
 
-bool Control::createNewProject(const QString &preferredName)
+QVariantMap Control::projectState() const
 {
-    if (!m_systemService.createProject(preferredName)) {
-        setStatus(QStringLiteral("Failed to create project"));
-        return false;
-    }
-
-    resetState();
-    m_projectName = QFileInfo(m_systemService.projectFilePath()).completeBaseName();
-    m_classNames = {QStringLiteral("default")};
-    m_currentClassName = m_classNames.first();
-
-    emit projectChanged();
-    emit classNamesChanged();
-    emit currentClassNameChanged();
-    emit currentPolygonsChanged();
-    emit selectedPolygonIndexChanged();
-    emit selectedAnnotationClassNameChanged();
-
-    if (!saveProjectData()) {
-        setStatus(QStringLiteral("Project created but initial save failed"));
-        return false;
-    }
-
-    saveSessionState();
-    setStatus(QStringLiteral("Project created: %1").arg(m_systemService.projectFilePath()));
-    return true;
+    QVariantMap state;
+    state.insert(QStringLiteral("status"), m_status);
+    state.insert(QStringLiteral("projectName"), m_projectName);
+    state.insert(QStringLiteral("projectFilePath"), m_systemService.projectFilePath());
+    return state;
 }
 
-bool Control::loadProjectFile(const QVariant &projectFileUrlOrPath)
+QVariantMap Control::imageState() const
 {
-    const QString path = normalizePath(projectFileUrlOrPath);
-    if (path.isEmpty() || !m_systemService.loadProject(path)) {
-        setStatus(QStringLiteral("Failed to load project file"));
-        return false;
-    }
+    QVariantMap state;
+    state.insert(QStringLiteral("imagePaths"), m_imagePaths);
+    state.insert(QStringLiteral("imageCount"), m_imagePaths.size());
+    state.insert(QStringLiteral("currentImageIndex"), m_currentImageIndex);
+    state.insert(QStringLiteral("currentImagePath"), currentImagePath());
+    return state;
+}
 
-    QFile file(m_systemService.projectFilePath());
-    if (!file.open(QIODevice::ReadOnly)) {
-        setStatus(QStringLiteral("Failed to read project file"));
-        return false;
-    }
+QVariantMap Control::annotationState() const
+{
+    QVariantMap state;
+    state.insert(QStringLiteral("classNames"), m_classNames);
+    state.insert(QStringLiteral("currentClassName"), m_currentClassName);
+    state.insert(QStringLiteral("draftPoints"), draftPoints());
+    state.insert(QStringLiteral("currentPolygons"), currentPolygons());
+    state.insert(QStringLiteral("selectedPolygonIndex"), m_selectedPolygonIndex);
+    state.insert(QStringLiteral("selectedAnnotationClassName"), selectedAnnotationClassName());
+    state.insert(QStringLiteral("annotationRemarks"), m_annotationRemarks);
+    state.insert(QStringLiteral("annotationKind"), m_annotationKind);
+    state.insert(QStringLiteral("annotationSeverity"), m_annotationSeverity);
+    state.insert(QStringLiteral("annotationSplit"), m_annotationSplit);
+    return state;
+}
 
-    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-    file.close();
-    if (!doc.isObject()) {
-        setStatus(QStringLiteral("Invalid project JSON"));
-        return false;
-    }
+QVariantMap Control::visibilityState() const
+{
+    QVariantMap state;
+    state.insert(QStringLiteral("showLabel"), m_showLabel);
+    state.insert(QStringLiteral("showPredict"), m_showPredict);
+    state.insert(QStringLiteral("showGood"), m_showGood);
+    state.insert(QStringLiteral("ioFolderPath"), m_ioFolderPath);
+    return state;
+}
 
-    resetState();
+QVariantMap Control::uiState() const
+{
+    QVariantMap state;
+    state.insert(QStringLiteral("project"), projectState());
+    state.insert(QStringLiteral("image"), imageState());
+    state.insert(QStringLiteral("annotation"), annotationState());
+    state.insert(QStringLiteral("visibility"), visibilityState());
+    return state;
+}
 
-    const QJsonObject root = doc.object();
-    m_projectName = root.value(QStringLiteral("projectName")).toString();
-
-    const QJsonArray classes = root.value(QStringLiteral("classes")).toArray();
-    for (const QJsonValue &value : classes) {
-        const QString name = value.toString().trimmed();
-        if (!name.isEmpty() && !m_classNames.contains(name)) {
-            m_classNames.push_back(name);
+bool Control::executeProjectOperation(const QString &operationKey, const QVariant &value, const QVariantMap &payload)
+{
+    Q_UNUSED(payload)
+    const QString op = operationKey.trimmed().toLower();
+    if (op == QStringLiteral("create")) {
+        const QString preferredName = value.toString();
+        if (!m_systemService.createProject(preferredName)) {
+            setStatus(QStringLiteral("Failed to create project"));
+            return false;
         }
-    }
-    if (m_classNames.isEmpty()) {
+
+        resetState();
+        m_projectName = QFileInfo(m_systemService.projectFilePath()).completeBaseName();
         m_classNames = {QStringLiteral("default")};
-    }
-    m_currentClassName = m_classNames.first();
+        m_currentClassName = m_classNames.first();
 
-    const QJsonArray images = root.value(QStringLiteral("images")).toArray();
-    for (const QJsonValue &imgVal : images) {
-        const QJsonObject imgObj = imgVal.toObject();
-        const QString pathValue = imgObj.value(QStringLiteral("path")).toString();
-        if (pathValue.isEmpty()) {
-            continue;
+        emit projectChanged();
+        emit classNamesChanged();
+        emit currentClassNameChanged();
+        emit currentPolygonsChanged();
+        emit selectedPolygonIndexChanged();
+        emit selectedAnnotationClassNameChanged();
+
+        if (!saveProjectData()) {
+            setStatus(QStringLiteral("Project created but initial save failed"));
+            return false;
         }
 
-        m_imagePaths.push_back(pathValue);
+        saveSessionState();
+        setStatus(QStringLiteral("Project created: %1").arg(m_systemService.projectFilePath()));
+        return true;
+    }
+    if (op == QStringLiteral("load")) {
+        const QString path = normalizePath(value);
+        if (path.isEmpty() || !m_systemService.loadProject(path)) {
+            setStatus(QStringLiteral("Failed to load project file"));
+            return false;
+        }
 
-        QList<AnnotationData> imageAnnotations;
-        const QJsonArray anns = imgObj.value(QStringLiteral("annotations")).toArray();
-        for (const QJsonValue &annVal : anns) {
-            const QJsonObject annObj = annVal.toObject();
-            AnnotationData ann;
-            ann.className = annObj.value(QStringLiteral("className")).toString();
-            ann.remarks = annObj.value(QStringLiteral("remarks")).toString();
-            ann.kind = m_labelingService.normalizedKind(annObj.value(QStringLiteral("kind")).toString());
-            ann.severity = m_labelingService.normalizedSeverity(annObj.value(QStringLiteral("severity")).toString());
-            ann.split = m_labelingService.normalizedSplit(annObj.value(QStringLiteral("split")).toString());
+        QFile file(m_systemService.projectFilePath());
+        if (!file.open(QIODevice::ReadOnly)) {
+            setStatus(QStringLiteral("Failed to read project file"));
+            return false;
+        }
 
-            const QJsonArray pts = annObj.value(QStringLiteral("points")).toArray();
-            for (const QJsonValue &ptVal : pts) {
-                const QJsonObject ptObj = ptVal.toObject();
-                ann.points.push_back(
-                    QPointF(ptObj.value(QStringLiteral("x")).toDouble(),
-                            ptObj.value(QStringLiteral("y")).toDouble()));
+        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+        file.close();
+        if (!doc.isObject()) {
+            setStatus(QStringLiteral("Invalid project JSON"));
+            return false;
+        }
+
+        resetState();
+
+        const QJsonObject root = doc.object();
+        m_projectName = root.value(QStringLiteral("projectName")).toString();
+
+        const QJsonArray classes = root.value(QStringLiteral("classes")).toArray();
+        for (const QJsonValue &classValue : classes) {
+            const QString name = classValue.toString().trimmed();
+            if (!name.isEmpty() && !m_classNames.contains(name)) {
+                m_classNames.push_back(name);
+            }
+        }
+        if (m_classNames.isEmpty()) {
+            m_classNames = {QStringLiteral("default")};
+        }
+        m_currentClassName = m_classNames.first();
+
+        const QJsonArray images = root.value(QStringLiteral("images")).toArray();
+        for (const QJsonValue &imgVal : images) {
+            const QJsonObject imgObj = imgVal.toObject();
+            const QString pathValue = imgObj.value(QStringLiteral("path")).toString();
+            if (pathValue.isEmpty()) {
+                continue;
             }
 
-            if (!ann.className.isEmpty() && !ann.points.isEmpty()) {
-                imageAnnotations.push_back(ann);
+            m_imagePaths.push_back(pathValue);
+
+            QList<AnnotationData> imageAnnotations;
+            const QJsonArray anns = imgObj.value(QStringLiteral("annotations")).toArray();
+            for (const QJsonValue &annVal : anns) {
+                const QJsonObject annObj = annVal.toObject();
+                AnnotationData ann;
+                ann.className = annObj.value(QStringLiteral("className")).toString();
+                ann.remarks = annObj.value(QStringLiteral("remarks")).toString();
+                ann.kind = m_labelingService.normalizedKind(annObj.value(QStringLiteral("kind")).toString());
+                ann.severity = m_labelingService.normalizedSeverity(annObj.value(QStringLiteral("severity")).toString());
+                ann.split = m_labelingService.normalizedSplit(annObj.value(QStringLiteral("split")).toString());
+
+                const QJsonArray pts = annObj.value(QStringLiteral("points")).toArray();
+                for (const QJsonValue &ptVal : pts) {
+                    const QJsonObject ptObj = ptVal.toObject();
+                    ann.points.push_back(
+                        QPointF(ptObj.value(QStringLiteral("x")).toDouble(),
+                                ptObj.value(QStringLiteral("y")).toDouble()));
+                }
+
+                if (!ann.className.isEmpty() && !ann.points.isEmpty()) {
+                    imageAnnotations.push_back(ann);
+                }
+            }
+
+            if (!imageAnnotations.isEmpty()) {
+                m_annotations.insert(m_labelingService.annotationKeyForPath(pathValue), imageAnnotations);
             }
         }
 
-        if (!imageAnnotations.isEmpty()) {
-            m_annotations.insert(m_labelingService.annotationKeyForPath(pathValue), imageAnnotations);
+        emit projectChanged();
+        emit imagePathsChanged();
+        emit classNamesChanged();
+        emit currentClassNameChanged();
+        emit currentPolygonsChanged();
+        emit selectedPolygonIndexChanged();
+        emit selectedAnnotationClassNameChanged();
+
+        const QString rememberedProject =
+            QFileInfo(m_systemService.loadAppValue(kLastProjectFileKey).toString()).absoluteFilePath();
+        int targetIndex = 0;
+        if (QFileInfo(m_systemService.projectFilePath()).absoluteFilePath() == rememberedProject) {
+            targetIndex = m_systemService.loadAppValue(kLastImageIndexKey, 0).toInt();
         }
+
+        if (!m_imagePaths.isEmpty()) {
+            targetIndex = qBound(0, targetIndex, m_imagePaths.size() - 1);
+            selectImage(targetIndex);
+        } else {
+            emit currentImageChanged();
+        }
+
+        saveSessionState();
+        setStatus(QStringLiteral("Project loaded: %1").arg(m_systemService.projectFilePath()));
+        return true;
+    }
+    if (op == QStringLiteral("save_as")) {
+        if (m_systemService.projectFilePath().isEmpty()) {
+            setStatus(QStringLiteral("Create or load a project first"));
+            return false;
+        }
+
+        const QString newPath = normalizePath(value);
+        if (newPath.isEmpty()) {
+            setStatus(QStringLiteral("Invalid target config path"));
+            return false;
+        }
+
+        if (!m_systemService.createProject(newPath)) {
+            setStatus(QStringLiteral("Failed to create target config"));
+            return false;
+        }
+
+        m_projectName = QFileInfo(m_systemService.projectFilePath()).completeBaseName();
+        emit projectChanged();
+
+        if (!saveProjectData()) {
+            setStatus(QStringLiteral("Failed to save copied config"));
+            return false;
+        }
+
+        saveSessionState();
+        setStatus(QStringLiteral("Saved as: %1").arg(m_systemService.projectFilePath()));
+        return true;
     }
 
-    emit projectChanged();
-    emit imagePathsChanged();
-    emit classNamesChanged();
-    emit currentClassNameChanged();
+    setStatus(QStringLiteral("Unknown project operation: %1").arg(operationKey));
+    return false;
+}
+
+bool Control::projectAction(const QString &action, const QVariantMap &payload)
+{
+    const QString opKey = payload.value(QStringLiteral("key")).toString();
+    if (!opKey.trimmed().isEmpty()) {
+        return executeProjectOperation(opKey, payload.value(QStringLiteral("value")), payload);
+    }
+
+    switch (toProjectTask(m_labelingService.canonicalProjectAction(action))) {
+    case ProjectTask::Create:
+        return executeProjectOperation(QStringLiteral("create"),
+                                       payload.value(QStringLiteral("preferredName")),
+                                       payload);
+    case ProjectTask::Load:
+        return executeProjectOperation(QStringLiteral("load"),
+                                       payload.value(QStringLiteral("projectPath")),
+                                       payload);
+    case ProjectTask::SaveAs:
+        return executeProjectOperation(QStringLiteral("save_as"),
+                                       payload.value(QStringLiteral("projectPath")),
+                                       payload);
+    case ProjectTask::Unknown:
+        break;
+    }
+
+    setStatus(QStringLiteral("Unknown project action: %1").arg(action));
+    return false;
+}
+
+void Control::clearImageWorkspaceForImport()
+{
+    m_imagePaths.clear();
+    m_annotations.clear();
+    m_currentImageIndex = -1;
+    m_draftPoints.clear();
+    m_selectedPolygonIndex = -1;
+    m_draftModeActive = false;
+    emit draftPointsChanged();
+    emit currentImageChanged();
     emit currentPolygonsChanged();
     emit selectedPolygonIndexChanged();
     emit selectedAnnotationClassNameChanged();
-
-    const QString rememberedProject =
-        QFileInfo(m_systemService.loadAppValue(kLastProjectFileKey).toString()).absoluteFilePath();
-    int targetIndex = 0;
-    if (QFileInfo(m_systemService.projectFilePath()).absoluteFilePath() == rememberedProject) {
-        targetIndex = m_systemService.loadAppValue(kLastImageIndexKey, 0).toInt();
-    }
-
-    if (!m_imagePaths.isEmpty()) {
-        targetIndex = qBound(0, targetIndex, m_imagePaths.size() - 1);
-        selectImage(targetIndex);
-    } else {
-        emit currentImageChanged();
-    }
-
-    saveSessionState();
-    setStatus(QStringLiteral("Project loaded: %1").arg(m_systemService.projectFilePath()));
-    return true;
+    resetAnnotationFieldsToDefault();
 }
 
-bool Control::saveProjectAs(const QVariant &projectFileUrlOrPath)
-{
-    if (m_systemService.projectFilePath().isEmpty()) {
-        setStatus(QStringLiteral("Create or load a project first"));
-        return false;
-    }
-
-    const QString newPath = normalizePath(projectFileUrlOrPath);
-    if (newPath.isEmpty()) {
-        setStatus(QStringLiteral("Invalid target config path"));
-        return false;
-    }
-
-    if (!m_systemService.createProject(newPath)) {
-        setStatus(QStringLiteral("Failed to create target config"));
-        return false;
-    }
-
-    m_projectName = QFileInfo(m_systemService.projectFilePath()).completeBaseName();
-    emit projectChanged();
-
-    if (!saveProjectData()) {
-        setStatus(QStringLiteral("Failed to save copied config"));
-        return false;
-    }
-
-    saveSessionState();
-    setStatus(QStringLiteral("Saved as: %1").arg(m_systemService.projectFilePath()));
-    return true;
-}
-
-bool Control::importImageFolder(const QVariant &folderUrlOrPath, bool clearExisting)
-{
-    if (m_systemService.projectFilePath().isEmpty()) {
-        setStatus(QStringLiteral("Create or load a project first"));
-        return false;
-    }
-
-    const QString folderPath = normalizePath(folderUrlOrPath);
-    QDir dir(folderPath);
-    if (!dir.exists()) {
-        setStatus(QStringLiteral("Folder does not exist"));
-        return false;
-    }
-
-    if (clearExisting) {
-        m_imagePaths.clear();
-        m_annotations.clear();
-        m_currentImageIndex = -1;
-        m_draftPoints.clear();
-        m_selectedPolygonIndex = -1;
-        emit draftPointsChanged();
-        emit currentImageChanged();
-        emit currentPolygonsChanged();
-        emit selectedPolygonIndexChanged();
-        emit selectedAnnotationClassNameChanged();
-        resetAnnotationFieldsToDefault();
-    }
-
-    int importedCount = 0;
-    int updatedCount = 0;
-    bool changed = false;
-
-    QDirIterator it(folderPath, QDir::Files | QDir::NoSymLinks, QDirIterator::Subdirectories);
-    while (it.hasNext()) {
-        const QString path = it.next();
-        const QString suffix = QStringLiteral(".") + QFileInfo(path).suffix().toLower();
-        if (!m_labelingService.supportedExtensions().contains(suffix)) {
-            continue;
-        }
-
-        if (m_labelingService.upsertImagePathByFilename(m_imagePaths, path, &importedCount, &updatedCount)) {
-            changed = true;
-        }
-    }
-
-    if (!changed) {
-        setStatus(QStringLiteral("No new images imported from folder"));
-        return false;
-    }
-
-    emit imagePathsChanged();
-    if (m_currentImageIndex < 0) {
-        selectImage(0);
-    } else {
-        loadImageToView(m_imagePaths.at(m_currentImageIndex));
-    }
-
-    saveProjectData();
-    saveLastImageIndex();
-    setStatus(QStringLiteral("Imported %1 images, updated %2 by filename").arg(importedCount).arg(updatedCount));
-    return true;
-}
-
-bool Control::importImageFiles(const QVariant &fileUrlList, bool clearExisting)
+bool Control::importImagePaths(const QStringList &paths, bool clearExisting, const QString &emptyImportStatus)
 {
     if (m_systemService.projectFilePath().isEmpty()) {
         setStatus(QStringLiteral("Create or load a project first"));
@@ -519,35 +589,15 @@ bool Control::importImageFiles(const QVariant &fileUrlList, bool clearExisting)
     }
 
     if (clearExisting) {
-        m_imagePaths.clear();
-        m_annotations.clear();
-        m_currentImageIndex = -1;
-        m_draftPoints.clear();
-        m_selectedPolygonIndex = -1;
-        emit draftPointsChanged();
-        emit currentImageChanged();
-        emit currentPolygonsChanged();
-        emit selectedPolygonIndexChanged();
-        emit selectedAnnotationClassNameChanged();
-        resetAnnotationFieldsToDefault();
+        clearImageWorkspaceForImport();
     }
 
     int importedCount = 0;
     int updatedCount = 0;
     bool changed = false;
 
-    QVariantList entries;
-    if (fileUrlList.typeId() == QMetaType::QVariantList) {
-        entries = fileUrlList.toList();
-    } else {
-        const QString maybeSingle = normalizePath(fileUrlList);
-        if (!maybeSingle.isEmpty()) {
-            entries.push_back(maybeSingle);
-        }
-    }
-
-    for (const QVariant &entry : entries) {
-        const QString path = normalizePath(entry);
+    for (const QString &pathEntry : paths) {
+        const QString path = normalizePath(pathEntry);
         if (path.isEmpty()) {
             continue;
         }
@@ -563,7 +613,7 @@ bool Control::importImageFiles(const QVariant &fileUrlList, bool clearExisting)
     }
 
     if (!changed) {
-        setStatus(QStringLiteral("No new images imported"));
+        setStatus(emptyImportStatus);
         return false;
     }
 
@@ -578,17 +628,6 @@ bool Control::importImageFiles(const QVariant &fileUrlList, bool clearExisting)
     saveLastImageIndex();
     setStatus(QStringLiteral("Imported %1 images, updated %2 by filename").arg(importedCount).arg(updatedCount));
     return true;
-}
-
-bool Control::importImageFileUrls(const QList<QUrl> &fileUrls, bool clearExisting)
-{
-    QVariantList list;
-    list.reserve(fileUrls.size());
-    for (const QUrl &url : fileUrls) {
-        list.push_back(url);
-    }
-
-    return importImageFiles(list, clearExisting);
 }
 
 bool Control::selectImage(int index)
@@ -617,58 +656,109 @@ bool Control::selectImage(int index)
     return true;
 }
 
-bool Control::firstImage()
-{
-    return selectImage(0);
-}
-
-bool Control::lastImage()
+bool Control::navigateImage(ImageNavigation navigation)
 {
     if (m_imagePaths.isEmpty()) {
         return false;
     }
 
-    return selectImage(m_imagePaths.size() - 1);
-}
-
-bool Control::nextImage()
-{
-    if (m_imagePaths.isEmpty()) {
-        return false;
+    int targetIndex = m_currentImageIndex;
+    switch (navigation) {
+    case ImageNavigation::First:
+        targetIndex = 0;
+        break;
+    case ImageNavigation::Last:
+        targetIndex = m_imagePaths.size() - 1;
+        break;
+    case ImageNavigation::Next:
+        targetIndex = qMin(m_currentImageIndex + 1, m_imagePaths.size() - 1);
+        break;
+    case ImageNavigation::Previous:
+        targetIndex = qMax(0, m_currentImageIndex - 1);
+        break;
+    case ImageNavigation::Next10:
+        targetIndex = qMin(m_currentImageIndex + 10, m_imagePaths.size() - 1);
+        break;
+    case ImageNavigation::Previous10:
+        targetIndex = qMax(0, m_currentImageIndex - 10);
+        break;
     }
 
-    const int next = qMin(m_currentImageIndex + 1, m_imagePaths.size() - 1);
-    return selectImage(next);
+    return selectImage(targetIndex);
 }
 
-bool Control::previousImage()
+bool Control::imageAction(const QString &action, const QVariantMap &payload)
 {
-    if (m_imagePaths.isEmpty()) {
-        return false;
+    const bool clearExisting = payload.value(QStringLiteral("clearExisting"), false).toBool();
+    switch (toImageTask(m_labelingService.canonicalImageAction(action))) {
+    case ImageTask::ImportFolder: {
+        const QString folderPath = normalizePath(payload.value(QStringLiteral("folderPath")));
+        QDir dir(folderPath);
+        if (!dir.exists()) {
+            setStatus(QStringLiteral("Folder does not exist"));
+            return false;
+        }
+        QStringList paths;
+        QDirIterator it(folderPath, QDir::Files | QDir::NoSymLinks, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            paths.push_back(it.next());
+        }
+        return importImagePaths(paths, clearExisting, QStringLiteral("No new images imported from folder"));
+    }
+    case ImageTask::ImportFiles: {
+        QVariantList entries;
+        const QVariant fileListValue = payload.value(QStringLiteral("fileList"));
+        if (fileListValue.typeId() == QMetaType::QVariantList) {
+            entries = fileListValue.toList();
+        } else {
+            const QString maybeSingle = normalizePath(fileListValue);
+            if (!maybeSingle.isEmpty()) {
+                entries.push_back(maybeSingle);
+            }
+        }
+        QStringList paths;
+        paths.reserve(entries.size());
+        for (const QVariant &entry : entries) {
+            paths.push_back(normalizePath(entry));
+        }
+        return importImagePaths(paths, clearExisting, QStringLiteral("No new images imported"));
+    }
+    case ImageTask::Select:
+        return selectImage(payload.value(QStringLiteral("index"), -1).toInt());
+    case ImageTask::First:
+        return navigateImage(ImageNavigation::First);
+    case ImageTask::Last:
+        return navigateImage(ImageNavigation::Last);
+    case ImageTask::Next:
+        return navigateImage(ImageNavigation::Next);
+    case ImageTask::Previous:
+        return navigateImage(ImageNavigation::Previous);
+    case ImageTask::Next10:
+        return navigateImage(ImageNavigation::Next10);
+    case ImageTask::Previous10:
+        return navigateImage(ImageNavigation::Previous10);
+    case ImageTask::Unknown:
+        break;
     }
 
-    const int prev = qMax(0, m_currentImageIndex - 1);
-    return selectImage(prev);
+    setStatus(QStringLiteral("Unknown image action: %1").arg(action));
+    return false;
 }
 
-bool Control::next10Images()
+QVariantList Control::listAction(const QString &action, const QVariantMap &payload) const
 {
-    if (m_imagePaths.isEmpty()) {
-        return false;
+    Q_UNUSED(payload)
+    const QString task = m_labelingService.canonicalListAction(action);
+    if (task == QStringLiteral("image_summary")) {
+        return imageSummaryList();
     }
-
-    const int next = qMin(m_currentImageIndex + 10, m_imagePaths.size() - 1);
-    return selectImage(next);
-}
-
-bool Control::previous10Images()
-{
-    if (m_imagePaths.isEmpty()) {
-        return false;
+    if (task == QStringLiteral("annotation_current")) {
+        return annotationListForCurrentImage();
     }
-
-    const int prev = qMax(0, m_currentImageIndex - 10);
-    return selectImage(prev);
+    if (task == QStringLiteral("annotation_all")) {
+        return annotationListForAllImages();
+    }
+    return {};
 }
 
 QVariantList Control::imageSummaryList() const
@@ -766,8 +856,22 @@ bool Control::selectAnnotationFromList(int imageIndex, int annotationIndex)
         return false;
     }
 
-    setSelectedPolygonIndex(annotationIndex);
-    if (m_selectedPolygonIndex != annotationIndex) {
+    const int maxIndex = currentImageAnnotations().size() - 1;
+    const int clamped = (annotationIndex < 0 || annotationIndex > maxIndex) ? -1 : annotationIndex;
+    m_selectedPolygonIndex = clamped;
+    m_draftModeActive = false;
+    emit selectedPolygonIndexChanged();
+    emit selectedAnnotationClassNameChanged();
+
+    const QList<AnnotationData> annList = currentImageAnnotations();
+    if (m_selectedPolygonIndex >= 0 && m_selectedPolygonIndex < annList.size()) {
+        const AnnotationData &ann = annList.at(m_selectedPolygonIndex);
+        setAnnotationFields(ann.remarks, ann.kind, ann.severity, ann.split);
+    } else {
+        resetAnnotationFieldsToDefault();
+    }
+
+    if (clamped != annotationIndex) {
         setStatus(QStringLiteral("Annotation index out of range"));
         return false;
     }
@@ -792,17 +896,7 @@ bool Control::importClassificationFromFolder(const QVariant &folderUrlOrPath, bo
     setIoFolderPath(rootFolder);
 
     if (clearExisting) {
-        m_imagePaths.clear();
-        m_annotations.clear();
-        m_currentImageIndex = -1;
-        m_draftPoints.clear();
-        m_selectedPolygonIndex = -1;
-        emit draftPointsChanged();
-        emit currentImageChanged();
-        emit currentPolygonsChanged();
-        emit selectedPolygonIndexChanged();
-        emit selectedAnnotationClassNameChanged();
-        resetAnnotationFieldsToDefault();
+        clearImageWorkspaceForImport();
     }
 
     int addedImages = 0;
@@ -1045,412 +1139,504 @@ bool Control::exportClassificationToFolder(const QVariant &folderUrlOrPath)
     return true;
 }
 
-bool Control::addClassName(const QString &name)
+bool Control::ioAction(const QString &action, const QVariantMap &payload)
 {
-    const QString trimmed = name.trimmed();
-    if (trimmed.isEmpty()) {
-        setStatus(QStringLiteral("Class name cannot be empty"));
+    switch (toIoTask(m_labelingService.canonicalIoAction(action))) {
+    case IoTask::SetFolder:
+        setIoFolderPath(payload.value(QStringLiteral("folderPath")).toString());
+        return true;
+    case IoTask::SetVisibility: {
+        const QString key = payload.value(QStringLiteral("key")).toString().trimmed().toLower();
+        const bool enabled = payload.value(QStringLiteral("enabled"), true).toBool();
+        auto applyVisibility = [this, enabled](bool &stateField, const QString &persistKey) {
+            if (stateField == enabled) {
+                return true;
+            }
+            stateField = enabled;
+            m_systemService.saveAppValue(persistKey, stateField);
+            emit typeVisibilityChanged();
+            emit currentPolygonsChanged();
+            return true;
+        };
+        if (key == QStringLiteral("label")) {
+            return applyVisibility(m_showLabel, kShowLabelKey);
+        }
+        if (key == QStringLiteral("predict")) {
+            return applyVisibility(m_showPredict, kShowPredictKey);
+        }
+        if (key == QStringLiteral("good")) {
+            return applyVisibility(m_showGood, kShowGoodKey);
+        }
+        setStatus(QStringLiteral("Unknown visibility key: %1").arg(key));
         return false;
     }
-
-    if (!m_classNames.contains(trimmed)) {
-        m_classNames.push_back(trimmed);
-        emit classNamesChanged();
+    case IoTask::ImportClassification:
+        return importClassificationFromFolder(payload.value(QStringLiteral("folderPath")),
+                                              payload.value(QStringLiteral("clearExisting"), false).toBool());
+    case IoTask::ExportClassification:
+        return exportClassificationToFolder(payload.value(QStringLiteral("folderPath")));
+    case IoTask::Unknown:
+        break;
     }
 
-    setCurrentClassName(trimmed);
-    saveProjectData();
-    return true;
+    setStatus(QStringLiteral("Unknown I/O action: %1").arg(action));
+    return false;
 }
 
-bool Control::deleteClassName(const QString &name)
+bool Control::annotationAction(const QString &action, const QVariantMap &payload)
 {
-    const QString trimmed = name.trimmed();
-    if (trimmed.isEmpty()) {
-        setStatus(QStringLiteral("Class name cannot be empty"));
-        return false;
+    const QString opKey = payload.value(QStringLiteral("key")).toString();
+    if (!opKey.trimmed().isEmpty()) {
+        return executeAnnotationOperation(opKey, payload.value(QStringLiteral("value")), payload);
     }
 
-    if (!m_classNames.contains(trimmed)) {
-        setStatus(QStringLiteral("Class not found"));
-        return false;
+    switch (toAnnotationTask(m_labelingService.canonicalAnnotationAction(action))) {
+    case AnnotationTask::StartNew:
+        return executeAnnotationOperation(QStringLiteral("start_new"), QVariant(), payload);
+    case AnnotationTask::AddClass:
+        return executeAnnotationOperation(QStringLiteral("add_class"), payload.value(QStringLiteral("className")), payload);
+    case AnnotationTask::DeleteClass:
+        return executeAnnotationOperation(QStringLiteral("delete_class"), payload.value(QStringLiteral("className")), payload);
+    case AnnotationTask::SetCurrentClass:
+        return executeAnnotationOperation(QStringLiteral("set_current_class"),
+                                          payload.value(QStringLiteral("className")),
+                                          payload);
+    case AnnotationTask::SetField:
+        return executeAnnotationOperation(QStringLiteral("set_field"), payload, payload);
+    case AnnotationTask::SetKind:
+        return executeAnnotationOperation(QStringLiteral("kind"), payload.value(QStringLiteral("kind")), payload);
+    case AnnotationTask::SetSeverity:
+        return executeAnnotationOperation(QStringLiteral("severity"), payload.value(QStringLiteral("severity")), payload);
+    case AnnotationTask::SetSplit:
+        return executeAnnotationOperation(QStringLiteral("split"), payload.value(QStringLiteral("split")), payload);
+    case AnnotationTask::SetRemarks:
+        return executeAnnotationOperation(QStringLiteral("remarks"), payload.value(QStringLiteral("remarks")), payload);
+    case AnnotationTask::AddPoint:
+        return executeAnnotationOperation(QStringLiteral("add_point"), payload, payload);
+    case AnnotationTask::UpdateDraftPoint:
+        return executeAnnotationOperation(QStringLiteral("update_draft_point"), payload, payload);
+    case AnnotationTask::Save:
+        return executeAnnotationOperation(QStringLiteral("save"), QVariant(), payload);
+    case AnnotationTask::Undo:
+        return executeAnnotationOperation(QStringLiteral("undo"), QVariant(), payload);
+    case AnnotationTask::Clear:
+        return executeAnnotationOperation(QStringLiteral("clear"), QVariant(), payload);
+    case AnnotationTask::Select:
+        return executeAnnotationOperation(QStringLiteral("select"), payload.value(QStringLiteral("polygonIndex")), payload);
+    case AnnotationTask::Delete:
+        return executeAnnotationOperation(QStringLiteral("delete"), QVariant(), payload);
+    case AnnotationTask::UpdateClass:
+        return executeAnnotationOperation(QStringLiteral("update_class"),
+                                          payload.value(QStringLiteral("className")),
+                                          payload);
+    case AnnotationTask::UpdateDetails:
+        return executeAnnotationOperation(QStringLiteral("update_details"),
+                                          payload.value(QStringLiteral("className")),
+                                          payload);
+    case AnnotationTask::UpdatePoint:
+        return executeAnnotationOperation(QStringLiteral("update_point"), payload, payload);
+    case AnnotationTask::SelectFromList:
+        return executeAnnotationOperation(QStringLiteral("select_from_list"), payload, payload);
+    case AnnotationTask::Unknown:
+        break;
     }
 
-    const QString defaultClass = QStringLiteral("default");
-    if (trimmed == defaultClass) {
-        setStatus(QStringLiteral("Default class cannot be deleted"));
-        return false;
-    }
+    setStatus(QStringLiteral("Unknown annotation action: %1").arg(action));
+    return false;
+}
 
-    if (!m_classNames.contains(defaultClass)) {
-        m_classNames.prepend(defaultClass);
-        emit classNamesChanged();
-    }
+bool Control::executeAnnotationOperation(const QString &operationKey, const QVariant &value, const QVariantMap &payload)
+{
+    const QString op = operationKey.trimmed().toLower();
 
-    // Reassign annotations using deleted class to default.
-    for (auto it = m_annotations.begin(); it != m_annotations.end(); ++it) {
-        QList<AnnotationData> &annList = it.value();
-        for (AnnotationData &ann : annList) {
-            if (ann.className == trimmed) {
-                ann.className = defaultClass;
+    if (op == QStringLiteral("start_new") || op == QStringLiteral("new")) {
+        m_draftModeActive = true;
+        if (!m_draftPoints.isEmpty()) {
+            m_draftPoints.clear();
+            emit draftPointsChanged();
+        }
+        if (m_selectedPolygonIndex != -1) {
+            m_selectedPolygonIndex = -1;
+            emit selectedPolygonIndexChanged();
+            emit selectedAnnotationClassNameChanged();
+            resetAnnotationFieldsToDefault();
+        }
+        return true;
+    }
+    if (op == QStringLiteral("add_class")) {
+        const QString className = value.toString().isEmpty() ? payload.value(QStringLiteral("className")).toString()
+                                                             : value.toString();
+        const QString trimmed = className.trimmed();
+        if (trimmed.isEmpty()) {
+            setStatus(QStringLiteral("Class name cannot be empty"));
+            return false;
+        }
+        if (!m_classNames.contains(trimmed)) {
+            m_classNames.push_back(trimmed);
+            emit classNamesChanged();
+        }
+        if (m_currentClassName != trimmed) {
+            m_currentClassName = trimmed;
+            emit currentClassNameChanged();
+        }
+        saveProjectData();
+        return true;
+    }
+    if (op == QStringLiteral("delete_class")) {
+        const QString className = value.toString().isEmpty() ? payload.value(QStringLiteral("className")).toString()
+                                                             : value.toString();
+        const QString trimmed = className.trimmed();
+        if (trimmed.isEmpty()) {
+            setStatus(QStringLiteral("Class name cannot be empty"));
+            return false;
+        }
+        if (!m_classNames.contains(trimmed)) {
+            setStatus(QStringLiteral("Class not found"));
+            return false;
+        }
+        const QString defaultClass = QStringLiteral("default");
+        if (trimmed == defaultClass) {
+            setStatus(QStringLiteral("Default class cannot be deleted"));
+            return false;
+        }
+        if (!m_classNames.contains(defaultClass)) {
+            m_classNames.prepend(defaultClass);
+            emit classNamesChanged();
+        }
+        for (auto it = m_annotations.begin(); it != m_annotations.end(); ++it) {
+            QList<AnnotationData> &annList = it.value();
+            for (AnnotationData &ann : annList) {
+                if (ann.className == trimmed) {
+                    ann.className = defaultClass;
+                }
             }
         }
+        m_classNames.removeAll(trimmed);
+        emit classNamesChanged();
+        if (m_currentClassName == trimmed) {
+            m_currentClassName = defaultClass;
+            emit currentClassNameChanged();
+        }
+        emit currentPolygonsChanged();
+        emit selectedAnnotationClassNameChanged();
+        if (!saveProjectData()) {
+            setStatus(QStringLiteral("Failed to delete class"));
+            return false;
+        }
+        setStatus(QStringLiteral("Class deleted, linked annotations moved to default"));
+        return true;
     }
-
-    m_classNames.removeAll(trimmed);
-    emit classNamesChanged();
-
-    if (m_currentClassName == trimmed) {
-        m_currentClassName = defaultClass;
+    if (op == QStringLiteral("set_current_class")) {
+        const QString className = value.toString().isEmpty() ? payload.value(QStringLiteral("className")).toString()
+                                                             : value.toString();
+        const QString trimmed = className.trimmed();
+        if (trimmed.isEmpty() || m_currentClassName == trimmed) {
+            return true;
+        }
+        m_currentClassName = trimmed;
         emit currentClassNameChanged();
+        return true;
     }
-    emit currentPolygonsChanged();
-    emit selectedAnnotationClassNameChanged();
-
-    if (!saveProjectData()) {
-        setStatus(QStringLiteral("Failed to delete class"));
-        return false;
+    if (op == QStringLiteral("set_field")) {
+        const QVariantMap fieldMap = value.toMap().isEmpty() ? payload : value.toMap();
+        const QString fieldKey = fieldMap.value(QStringLiteral("key")).toString();
+        const QVariant fieldValue = fieldMap.value(QStringLiteral("value"));
+        return executeAnnotationOperation(fieldKey, fieldValue, payload);
     }
-
-    setStatus(QStringLiteral("Class deleted, linked annotations moved to default"));
-    return true;
-}
-
-void Control::setCurrentClassName(const QString &name)
-{
-    const QString trimmed = name.trimmed();
-    if (trimmed.isEmpty() || m_currentClassName == trimmed) {
-        return;
+    if (op == QStringLiteral("kind") || op == QStringLiteral("severity") || op == QStringLiteral("level")
+        || op == QStringLiteral("split") || op == QStringLiteral("remarks")) {
+        const QVariant fieldValue = value.isValid() ? value : payload.value(op);
+        if (op == QStringLiteral("remarks")) {
+            setAnnotationFields(fieldValue.toString(), m_annotationKind, m_annotationSeverity, m_annotationSplit);
+            return true;
+        }
+        if (op == QStringLiteral("kind")) {
+            setAnnotationFields(m_annotationRemarks, fieldValue.toString(), m_annotationSeverity, m_annotationSplit);
+            return true;
+        }
+        if (op == QStringLiteral("severity") || op == QStringLiteral("level")) {
+            setAnnotationFields(m_annotationRemarks, m_annotationKind, fieldValue.toString(), m_annotationSplit);
+            return true;
+        }
+        setAnnotationFields(m_annotationRemarks, m_annotationKind, m_annotationSeverity, fieldValue.toString());
+        return true;
     }
-
-    m_currentClassName = trimmed;
-    emit currentClassNameChanged();
-}
-
-bool Control::addAnnotationPoint(qreal x, qreal y)
-{
-    if (m_currentImageIndex < 0) {
-        setStatus(QStringLiteral("Select an image first"));
-        return false;
-    }
-    if (!m_draftModeActive) {
-        setStatus(QStringLiteral("Click New before adding points"));
-        return false;
-    }
-
-    m_draftPoints.push_back(QPointF(x, y));
-    if (m_selectedPolygonIndex != -1) {
-        m_selectedPolygonIndex = -1;
-        emit selectedPolygonIndexChanged();
-        emit selectedAnnotationClassNameChanged();
-        resetAnnotationFieldsToDefault();
-    }
-    emit draftPointsChanged();
-    return true;
-}
-
-bool Control::updateDraftPoint(int pointIndex, qreal x, qreal y)
-{
-    if (!m_draftModeActive) {
-        return false;
-    }
-    if (pointIndex < 0 || pointIndex >= m_draftPoints.size()) {
-        return false;
-    }
-
-    m_draftPoints[pointIndex] = QPointF(x, y);
-    emit draftPointsChanged();
-    return true;
-}
-
-void Control::startNewAnnotation()
-{
-    m_draftModeActive = true;
-    if (!m_draftPoints.isEmpty()) {
-        m_draftPoints.clear();
+    if (op == QStringLiteral("add_point")) {
+        const QVariantMap pointMap = value.toMap().isEmpty() ? payload : value.toMap();
+        if (m_currentImageIndex < 0) {
+            setStatus(QStringLiteral("Select an image first"));
+            return false;
+        }
+        if (!m_draftModeActive) {
+            setStatus(QStringLiteral("Click New before adding points"));
+            return false;
+        }
+        m_draftPoints.push_back(QPointF(pointMap.value(QStringLiteral("x")).toDouble(),
+                                        pointMap.value(QStringLiteral("y")).toDouble()));
+        if (m_selectedPolygonIndex != -1) {
+            m_selectedPolygonIndex = -1;
+            emit selectedPolygonIndexChanged();
+            emit selectedAnnotationClassNameChanged();
+            resetAnnotationFieldsToDefault();
+        }
         emit draftPointsChanged();
+        return true;
     }
+    if (op == QStringLiteral("update_draft_point")) {
+        const QVariantMap pointMap = value.toMap().isEmpty() ? payload : value.toMap();
+        if (!m_draftModeActive) {
+            return false;
+        }
+        const int pointIndex = pointMap.value(QStringLiteral("pointIndex"), -1).toInt();
+        if (pointIndex < 0 || pointIndex >= m_draftPoints.size()) {
+            return false;
+        }
+        m_draftPoints[pointIndex] =
+            QPointF(pointMap.value(QStringLiteral("x")).toDouble(), pointMap.value(QStringLiteral("y")).toDouble());
+        emit draftPointsChanged();
+        return true;
+    }
+    if (op == QStringLiteral("save")) {
+        if (m_currentImageIndex < 0 || m_currentImageIndex >= m_imagePaths.size()) {
+            setStatus(QStringLiteral("Select an image first"));
+            return false;
+        }
+        if (m_currentClassName.trimmed().isEmpty()) {
+            setStatus(QStringLiteral("Set a class name before saving"));
+            return false;
+        }
+        if (m_draftPoints.size() < 3) {
+            setStatus(QStringLiteral("At least 3 points are required"));
+            return false;
+        }
 
-    if (m_selectedPolygonIndex != -1) {
+        AnnotationData ann;
+        ann.className = m_currentClassName;
+        ann.remarks = m_annotationRemarks;
+        ann.kind = m_labelingService.normalizedKind(m_annotationKind);
+        ann.severity = m_labelingService.normalizedSeverity(m_annotationSeverity);
+        ann.split = m_labelingService.normalizedSplit(m_annotationSplit);
+        ann.points = m_draftPoints;
+        if (!ann.points.isEmpty() && ann.points.first() != ann.points.last()) {
+            ann.points.push_back(ann.points.first());
+        }
+
+        const QString key = m_labelingService.annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
+        m_annotations[key].push_back(ann);
+        m_selectedPolygonIndex = m_annotations[key].size() - 1;
+        emit selectedPolygonIndexChanged();
+        emit selectedAnnotationClassNameChanged();
+        emit currentPolygonsChanged();
+
+        if (!m_draftPoints.isEmpty()) {
+            m_draftPoints.clear();
+            emit draftPointsChanged();
+        }
+        m_draftModeActive = false;
+
+        if (!saveProjectData()) {
+            setStatus(QStringLiteral("Failed to save annotation"));
+            return false;
+        }
+        setStatus(QStringLiteral("Annotation saved"));
+        return true;
+    }
+    if (op == QStringLiteral("undo")) {
+        if (m_draftPoints.isEmpty()) {
+            return false;
+        }
+        m_draftPoints.removeLast();
+        emit draftPointsChanged();
+        return true;
+    }
+    if (op == QStringLiteral("clear")) {
+        if (!m_draftPoints.isEmpty()) {
+            m_draftPoints.clear();
+            emit draftPointsChanged();
+        }
+        return true;
+    }
+    if (op == QStringLiteral("select")) {
+        const int polygonIndex = value.isValid() ? value.toInt() : payload.value(QStringLiteral("polygonIndex"), -1).toInt();
+        const int maxIndex = currentImageAnnotations().size() - 1;
+        const int clamped = (polygonIndex < 0 || polygonIndex > maxIndex) ? -1 : polygonIndex;
+        if (m_selectedPolygonIndex == clamped) {
+            return true;
+        }
+        m_selectedPolygonIndex = clamped;
+        m_draftModeActive = false;
+        emit selectedPolygonIndexChanged();
+        emit selectedAnnotationClassNameChanged();
+        const QList<AnnotationData> annList = currentImageAnnotations();
+        if (m_selectedPolygonIndex >= 0 && m_selectedPolygonIndex < annList.size()) {
+            const AnnotationData &ann = annList.at(m_selectedPolygonIndex);
+            setAnnotationFields(ann.remarks, ann.kind, ann.severity, ann.split);
+        } else {
+            resetAnnotationFieldsToDefault();
+        }
+        return true;
+    }
+    if (op == QStringLiteral("delete")) {
+        if (m_currentImageIndex < 0 || m_currentImageIndex >= m_imagePaths.size()) {
+            setStatus(QStringLiteral("Select an image first"));
+            return false;
+        }
+        if (m_selectedPolygonIndex < 0) {
+            setStatus(QStringLiteral("No annotation selected"));
+            return false;
+        }
+        const QString key = m_labelingService.annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
+        auto it = m_annotations.find(key);
+        if (it == m_annotations.end()) {
+            setStatus(QStringLiteral("No annotation selected"));
+            return false;
+        }
+        QList<AnnotationData> &annList = it.value();
+        if (m_selectedPolygonIndex >= annList.size()) {
+            m_selectedPolygonIndex = -1;
+            emit selectedPolygonIndexChanged();
+            emit selectedAnnotationClassNameChanged();
+            resetAnnotationFieldsToDefault();
+            setStatus(QStringLiteral("No annotation selected"));
+            return false;
+        }
+        annList.removeAt(m_selectedPolygonIndex);
+        if (annList.isEmpty()) {
+            m_annotations.remove(key);
+        }
         m_selectedPolygonIndex = -1;
         emit selectedPolygonIndexChanged();
         emit selectedAnnotationClassNameChanged();
+        emit currentPolygonsChanged();
         resetAnnotationFieldsToDefault();
+        if (!saveProjectData()) {
+            setStatus(QStringLiteral("Failed to delete annotation"));
+            return false;
+        }
+        setStatus(QStringLiteral("Annotation deleted"));
+        return true;
     }
-}
-
-void Control::setSelectedPolygonIndex(int polygonIndex)
-{
-    const int maxIndex = currentImageAnnotations().size() - 1;
-    const int clamped = (polygonIndex < 0 || polygonIndex > maxIndex) ? -1 : polygonIndex;
-    if (m_selectedPolygonIndex == clamped) {
-        return;
-    }
-
-    m_selectedPolygonIndex = clamped;
-    m_draftModeActive = false;
-    emit selectedPolygonIndexChanged();
-    emit selectedAnnotationClassNameChanged();
-
-    const QList<AnnotationData> annList = currentImageAnnotations();
-    if (m_selectedPolygonIndex >= 0 && m_selectedPolygonIndex < annList.size()) {
-        const AnnotationData &ann = annList.at(m_selectedPolygonIndex);
-        setAnnotationFields(ann.remarks, ann.kind, ann.severity, ann.split);
-    } else {
-        resetAnnotationFieldsToDefault();
-    }
-}
-
-bool Control::deleteSelectedAnnotation()
-{
-    if (m_currentImageIndex < 0 || m_currentImageIndex >= m_imagePaths.size()) {
-        setStatus(QStringLiteral("Select an image first"));
-        return false;
-    }
-
-    if (m_selectedPolygonIndex < 0) {
-        setStatus(QStringLiteral("No annotation selected"));
-        return false;
-    }
-
-    const QString key = m_labelingService.annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
-    auto it = m_annotations.find(key);
-    if (it == m_annotations.end()) {
-        setStatus(QStringLiteral("No annotation selected"));
-        return false;
-    }
-
-    QList<AnnotationData> &annList = it.value();
-    if (m_selectedPolygonIndex >= annList.size()) {
-        m_selectedPolygonIndex = -1;
-        emit selectedPolygonIndexChanged();
+    if (op == QStringLiteral("update_class")) {
+        const QString className = value.toString().isEmpty() ? payload.value(QStringLiteral("className")).toString()
+                                                             : value.toString();
+        if (m_currentImageIndex < 0 || m_currentImageIndex >= m_imagePaths.size()) {
+            setStatus(QStringLiteral("Select an image first"));
+            return false;
+        }
+        if (m_selectedPolygonIndex < 0) {
+            setStatus(QStringLiteral("No annotation selected"));
+            return false;
+        }
+        const QString trimmed = className.trimmed();
+        if (trimmed.isEmpty()) {
+            setStatus(QStringLiteral("Class name cannot be empty"));
+            return false;
+        }
+        if (!m_classNames.contains(trimmed)) {
+            setStatus(QStringLiteral("Class not found. Add it first."));
+            return false;
+        }
+        const QString key = m_labelingService.annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
+        auto it = m_annotations.find(key);
+        if (it == m_annotations.end() || m_selectedPolygonIndex >= it.value().size()) {
+            setStatus(QStringLiteral("No annotation selected"));
+            return false;
+        }
+        it.value()[m_selectedPolygonIndex].className = trimmed;
+        emit currentPolygonsChanged();
         emit selectedAnnotationClassNameChanged();
-        resetAnnotationFieldsToDefault();
-        setStatus(QStringLiteral("No annotation selected"));
-        return false;
+        if (!saveProjectData()) {
+            setStatus(QStringLiteral("Failed to update annotation class"));
+            return false;
+        }
+        setStatus(QStringLiteral("Annotation class updated"));
+        return true;
+    }
+    if (op == QStringLiteral("update_details")) {
+        const QString className = value.toString().isEmpty() ? payload.value(QStringLiteral("className")).toString()
+                                                             : value.toString();
+        if (m_currentImageIndex < 0 || m_currentImageIndex >= m_imagePaths.size()) {
+            setStatus(QStringLiteral("Select an image first"));
+            return false;
+        }
+        if (m_selectedPolygonIndex < 0) {
+            setStatus(QStringLiteral("No annotation selected"));
+            return false;
+        }
+        const QString trimmed = className.trimmed();
+        if (trimmed.isEmpty()) {
+            setStatus(QStringLiteral("Class name cannot be empty"));
+            return false;
+        }
+        if (!m_classNames.contains(trimmed)) {
+            setStatus(QStringLiteral("Class not found. Add it first."));
+            return false;
+        }
+        const QString key = m_labelingService.annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
+        auto it = m_annotations.find(key);
+        if (it == m_annotations.end() || m_selectedPolygonIndex >= it.value().size()) {
+            setStatus(QStringLiteral("No annotation selected"));
+            return false;
+        }
+        AnnotationData &ann = it.value()[m_selectedPolygonIndex];
+        ann.className = trimmed;
+        ann.remarks = m_annotationRemarks;
+        ann.kind = m_labelingService.normalizedKind(m_annotationKind);
+        ann.severity = m_labelingService.normalizedSeverity(m_annotationSeverity);
+        ann.split = m_labelingService.normalizedSplit(m_annotationSplit);
+        emit currentPolygonsChanged();
+        emit selectedAnnotationClassNameChanged();
+        emit annotationFieldsChanged();
+        if (!saveProjectData()) {
+            setStatus(QStringLiteral("Failed to update annotation"));
+            return false;
+        }
+        setStatus(QStringLiteral("Annotation updated"));
+        return true;
+    }
+    if (op == QStringLiteral("update_point")) {
+        const QVariantMap pointMap = value.toMap().isEmpty() ? payload : value.toMap();
+        const int polygonIndex = pointMap.value(QStringLiteral("polygonIndex"), -1).toInt();
+        const int pointIndex = pointMap.value(QStringLiteral("pointIndex"), -1).toInt();
+        if (m_currentImageIndex < 0 || m_currentImageIndex >= m_imagePaths.size()) {
+            setStatus(QStringLiteral("Select an image first"));
+            return false;
+        }
+        if (m_selectedPolygonIndex < 0 || polygonIndex != m_selectedPolygonIndex) {
+            setStatus(QStringLiteral("Select a polygon to edit"));
+            return false;
+        }
+        const QString key = m_labelingService.annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
+        auto it = m_annotations.find(key);
+        if (it == m_annotations.end()) {
+            return false;
+        }
+        QList<AnnotationData> &annList = it.value();
+        if (polygonIndex < 0 || polygonIndex >= annList.size()) {
+            return false;
+        }
+        AnnotationData &ann = annList[polygonIndex];
+        if (pointIndex < 0 || pointIndex >= ann.points.size()) {
+            return false;
+        }
+        ann.points[pointIndex] = QPointF(pointMap.value(QStringLiteral("x")).toDouble(),
+                                         pointMap.value(QStringLiteral("y")).toDouble());
+        emit currentPolygonsChanged();
+        if (!saveProjectData()) {
+            setStatus(QStringLiteral("Failed to save edited annotation"));
+            return false;
+        }
+        setStatus(QStringLiteral("Annotation point updated"));
+        return true;
+    }
+    if (op == QStringLiteral("select_from_list")) {
+        const QVariantMap listMap = value.toMap().isEmpty() ? payload : value.toMap();
+        return selectAnnotationFromList(listMap.value(QStringLiteral("imageIndex"), -1).toInt(),
+                                        listMap.value(QStringLiteral("annotationIndex"), -1).toInt());
     }
 
-    annList.removeAt(m_selectedPolygonIndex);
-    if (annList.isEmpty()) {
-        m_annotations.remove(key);
-    }
-
-    m_selectedPolygonIndex = -1;
-    emit selectedPolygonIndexChanged();
-    emit selectedAnnotationClassNameChanged();
-    emit currentPolygonsChanged();
-    resetAnnotationFieldsToDefault();
-
-    if (!saveProjectData()) {
-        setStatus(QStringLiteral("Failed to delete annotation"));
-        return false;
-    }
-
-    setStatus(QStringLiteral("Annotation deleted"));
-    return true;
-}
-
-bool Control::updateAnnotationPoint(int polygonIndex, int pointIndex, qreal x, qreal y)
-{
-    if (m_currentImageIndex < 0 || m_currentImageIndex >= m_imagePaths.size()) {
-        setStatus(QStringLiteral("Select an image first"));
-        return false;
-    }
-
-    if (m_selectedPolygonIndex < 0 || polygonIndex != m_selectedPolygonIndex) {
-        setStatus(QStringLiteral("Select a polygon to edit"));
-        return false;
-    }
-
-    const QString key = m_labelingService.annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
-    auto it = m_annotations.find(key);
-    if (it == m_annotations.end()) {
-        return false;
-    }
-
-    QList<AnnotationData> &annList = it.value();
-    if (polygonIndex < 0 || polygonIndex >= annList.size()) {
-        return false;
-    }
-
-    AnnotationData &ann = annList[polygonIndex];
-    if (pointIndex < 0 || pointIndex >= ann.points.size()) {
-        return false;
-    }
-
-    ann.points[pointIndex] = QPointF(x, y);
-    emit currentPolygonsChanged();
-
-    if (!saveProjectData()) {
-        setStatus(QStringLiteral("Failed to save edited annotation"));
-        return false;
-    }
-
-    setStatus(QStringLiteral("Annotation point updated"));
-    return true;
-}
-
-bool Control::updateSelectedAnnotationClassName(const QString &className)
-{
-    if (m_currentImageIndex < 0 || m_currentImageIndex >= m_imagePaths.size()) {
-        setStatus(QStringLiteral("Select an image first"));
-        return false;
-    }
-
-    if (m_selectedPolygonIndex < 0) {
-        setStatus(QStringLiteral("No annotation selected"));
-        return false;
-    }
-
-    const QString trimmed = className.trimmed();
-    if (trimmed.isEmpty()) {
-        setStatus(QStringLiteral("Class name cannot be empty"));
-        return false;
-    }
-
-    const QString key = m_labelingService.annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
-    auto it = m_annotations.find(key);
-    if (it == m_annotations.end() || m_selectedPolygonIndex >= it.value().size()) {
-        setStatus(QStringLiteral("No annotation selected"));
-        return false;
-    }
-
-    if (!m_classNames.contains(trimmed)) {
-        setStatus(QStringLiteral("Class not found. Add it first."));
-        return false;
-    }
-
-    it.value()[m_selectedPolygonIndex].className = trimmed;
-    emit currentPolygonsChanged();
-    emit selectedAnnotationClassNameChanged();
-
-    if (!saveProjectData()) {
-        setStatus(QStringLiteral("Failed to update annotation class"));
-        return false;
-    }
-
-    setStatus(QStringLiteral("Annotation class updated"));
-    return true;
-}
-
-bool Control::updateSelectedAnnotationDetails(const QString &className)
-{
-    if (m_currentImageIndex < 0 || m_currentImageIndex >= m_imagePaths.size()) {
-        setStatus(QStringLiteral("Select an image first"));
-        return false;
-    }
-
-    if (m_selectedPolygonIndex < 0) {
-        setStatus(QStringLiteral("No annotation selected"));
-        return false;
-    }
-
-    const QString trimmedClass = className.trimmed();
-    if (trimmedClass.isEmpty()) {
-        setStatus(QStringLiteral("Class name cannot be empty"));
-        return false;
-    }
-
-    if (!m_classNames.contains(trimmedClass)) {
-        setStatus(QStringLiteral("Class not found. Add it first."));
-        return false;
-    }
-
-    const QString key = m_labelingService.annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
-    auto it = m_annotations.find(key);
-    if (it == m_annotations.end() || m_selectedPolygonIndex >= it.value().size()) {
-        setStatus(QStringLiteral("No annotation selected"));
-        return false;
-    }
-
-    AnnotationData &ann = it.value()[m_selectedPolygonIndex];
-    ann.className = trimmedClass;
-    ann.remarks = m_annotationRemarks;
-    ann.kind = m_labelingService.normalizedKind(m_annotationKind);
-    ann.severity = m_labelingService.normalizedSeverity(m_annotationSeverity);
-    ann.split = m_labelingService.normalizedSplit(m_annotationSplit);
-
-    emit currentPolygonsChanged();
-    emit selectedAnnotationClassNameChanged();
-    emit annotationFieldsChanged();
-
-    if (!saveProjectData()) {
-        setStatus(QStringLiteral("Failed to update annotation"));
-        return false;
-    }
-
-    setStatus(QStringLiteral("Annotation updated"));
-    return true;
-}
-
-bool Control::undoLastPoint()
-{
-    if (m_draftPoints.isEmpty()) {
-        return false;
-    }
-
-    m_draftPoints.removeLast();
-    emit draftPointsChanged();
-    return true;
-}
-
-void Control::clearDraftPoints()
-{
-    if (m_draftPoints.isEmpty()) {
-        return;
-    }
-
-    m_draftPoints.clear();
-    emit draftPointsChanged();
-}
-
-bool Control::saveCurrentAnnotation()
-{
-    if (m_currentImageIndex < 0 || m_currentImageIndex >= m_imagePaths.size()) {
-        setStatus(QStringLiteral("Select an image first"));
-        return false;
-    }
-
-    if (m_currentClassName.trimmed().isEmpty()) {
-        setStatus(QStringLiteral("Set a class name before saving"));
-        return false;
-    }
-
-    if (m_draftPoints.size() < 3) {
-        setStatus(QStringLiteral("At least 3 points are required"));
-        return false;
-    }
-
-    AnnotationData ann;
-    ann.className = m_currentClassName;
-    ann.remarks = m_annotationRemarks;
-    ann.kind = m_labelingService.normalizedKind(m_annotationKind);
-    ann.severity = m_labelingService.normalizedSeverity(m_annotationSeverity);
-    ann.split = m_labelingService.normalizedSplit(m_annotationSplit);
-    ann.points = m_draftPoints;
-
-    // Ensure the polygon is explicitly closed when saved.
-    if (!ann.points.isEmpty() && ann.points.first() != ann.points.last()) {
-        ann.points.push_back(ann.points.first());
-    }
-
-    const QString key = m_labelingService.annotationKeyForPath(m_imagePaths.at(m_currentImageIndex));
-    m_annotations[key].push_back(ann);
-    m_selectedPolygonIndex = m_annotations[key].size() - 1;
-    emit selectedPolygonIndexChanged();
-    emit selectedAnnotationClassNameChanged();
-    emit currentPolygonsChanged();
-
-    clearDraftPoints();
-    m_draftModeActive = false;
-
-    if (!saveProjectData()) {
-        setStatus(QStringLiteral("Failed to save annotation"));
-        return false;
-    }
-
-    setStatus(QStringLiteral("Annotation saved"));
-    return true;
+    setStatus(QStringLiteral("Unknown annotation operation: %1").arg(operationKey));
+    return false;
 }
 
 QImage Control::matToQImage(const cv::Mat &mat)
@@ -1604,7 +1790,7 @@ bool Control::restoreLastSession()
         return false;
     }
 
-    return loadProjectFile(lastProject);
+    return executeProjectOperation(QStringLiteral("load"), lastProject, QVariantMap());
 }
 
 QList<Control::AnnotationData> Control::currentImageAnnotations() const

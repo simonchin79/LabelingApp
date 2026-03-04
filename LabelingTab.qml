@@ -15,6 +15,11 @@ ScrollView {
     property string pendingClassName: ""
     property int listMode: 0 // 0=image, 1=current anno, 2=all anno
     property var listRows: []
+    property var uiState: control ? control.uiState : ({})
+    property var projectData: uiState.project || ({})
+    property var imageData: uiState.image || ({})
+    property var annotationData: uiState.annotation || ({})
+    property var visibilityData: uiState.visibility || ({})
     property string sortKey: "fileName"
     property bool sortAscending: true
 
@@ -69,12 +74,12 @@ ScrollView {
         if (!root.control)
             return
         if (root.listMode === 0) {
-            root.listRows = applySort(root.control.imageSummaryList())
+            root.listRows = applySort(root.control.listAction("image_summary"))
             return
         }
         let sourceRows = root.listMode === 1
-                ? root.control.annotationListForCurrentImage()
-                : root.control.annotationListForAllImages()
+                ? root.control.listAction("annotation_current")
+                : root.control.listAction("annotation_all")
         const keyword = imageFilterField.text.trim().toLowerCase()
         if (keyword.length === 0) {
             root.listRows = applySort(sourceRows)
@@ -180,28 +185,22 @@ ScrollView {
     }
 
     Component.onCompleted: {
-        root.pendingClassName = root.control.currentClassName
-        projectNameField.text = root.control.projectName
+        root.pendingClassName = String(annotationData.currentClassName || "")
+        projectNameField.text = String(projectData.projectName || "")
     }
 
     Connections {
         target: root.control
 
-        function onSelectedAnnotationClassNameChanged() {
-            if (root.control.selectedPolygonIndex >= 0 &&
-                    root.control.selectedAnnotationClassName.length > 0) {
-                root.pendingClassName = root.control.selectedAnnotationClassName
+        function onUiStateChanged() {
+            const anno = root.annotationData
+            const project = root.projectData
+            if (anno.selectedPolygonIndex >= 0 && String(anno.selectedAnnotationClassName || "").length > 0) {
+                root.pendingClassName = String(anno.selectedAnnotationClassName || "")
+            } else if (anno.selectedPolygonIndex < 0) {
+                root.pendingClassName = String(anno.currentClassName || "")
             }
-        }
-
-        function onCurrentClassNameChanged() {
-            if (root.control.selectedPolygonIndex < 0) {
-                root.pendingClassName = root.control.currentClassName
-            }
-        }
-
-        function onProjectChanged() {
-            projectNameField.text = root.control.projectName
+            projectNameField.text = String(project.projectName || "")
         }
     }
 
@@ -250,7 +249,7 @@ ScrollView {
                     DarkButton {
                         width: Math.floor((projectActionRow.width - projectActionRow.spacing * 2) / 3)
                         text: "Create"
-                        onClicked: control.createNewProject(projectNameField.text)
+                        onClicked: control.projectAction("create", { "preferredName": projectNameField.text })
                     }
                     DarkButton {
                         width: Math.floor((projectActionRow.width - projectActionRow.spacing * 2) / 3)
@@ -260,13 +259,13 @@ ScrollView {
                     DarkButton {
                         width: Math.floor((projectActionRow.width - projectActionRow.spacing * 2) / 3)
                         text: "Save As"
-                        enabled: control.projectFilePath.length > 0
+                        enabled: String(projectData.projectFilePath || "").length > 0
                         onClicked: {
-                            const currentPath = String(control.projectFilePath)
+                            const currentPath = String(projectData.projectFilePath)
                             const slashIndex = currentPath.lastIndexOf("/")
                             const folder = slashIndex >= 0 ? currentPath.substring(0, slashIndex) : ""
-                            const base = String(control.projectName).trim().length > 0
-                                       ? String(control.projectName).trim()
+                            const base = String(projectData.projectName).trim().length > 0
+                                       ? String(projectData.projectName).trim()
                                        : baseName(currentPath).replace(/\.json$/i, "")
                             const suggested = base + "Copy.json"
                             const folderUrl = "file://" + (folder.length > 0 ? folder : ".")
@@ -278,7 +277,7 @@ ScrollView {
                 }
 
                 Text {
-                    text: control.projectFilePath
+                    text: projectData.projectFilePath
                     color: root.subTextColor
                     font.pixelSize: 11
                     wrapMode: Text.WrapAnywhere
@@ -356,11 +355,10 @@ ScrollView {
                     DarkButton {
                         width: Math.floor((ioActionRow.width - ioActionRow.spacing * 3) * 0.18)
                         text: "Import"
-                        enabled: control.ioFolderPath.length > 0
+                        enabled: String(visibilityData.ioFolderPath || "").length > 0
                         onClicked: {
                             if (ioFeatureCombo.currentIndex === 0) {
-                                control.importClassificationFromFolder(control.ioFolderPath,
-                                                                       root.replaceImagesOnImport)
+                                control.ioAction("import_classification", { "folderPath": visibilityData.ioFolderPath, "clearExisting": root.replaceImagesOnImport })
                             }
                         }
                     }
@@ -368,18 +366,18 @@ ScrollView {
                     DarkButton {
                         width: Math.floor((ioActionRow.width - ioActionRow.spacing * 3) * 0.18)
                         text: "Export"
-                        enabled: control.ioFolderPath.length > 0
+                        enabled: String(visibilityData.ioFolderPath || "").length > 0
                         onClicked: {
                             if (ioFeatureCombo.currentIndex === 0) {
-                                control.exportClassificationToFolder(control.ioFolderPath)
+                                control.ioAction("export_classification", { "folderPath": visibilityData.ioFolderPath })
                             }
                         }
                     }
                 }
 
                 Text {
-                    text: "I/O Folder: " + (control.ioFolderPath.length > 0
-                                            ? control.ioFolderPath
+                    text: "I/O Folder: " + (String(visibilityData.ioFolderPath || "").length > 0
+                                            ? visibilityData.ioFolderPath
                                             : "-")
                     color: root.subTextColor
                     font.pixelSize: 11
@@ -387,7 +385,7 @@ ScrollView {
                 }
 
                 Text {
-                    text: "Images: " + control.imageCount
+                    text: "Images: " + imageData.imageCount
                     color: root.textColor
                     font.pixelSize: 13
                 }
@@ -422,62 +420,62 @@ ScrollView {
                     DarkButton {
                         width: navButtonRow.buttonWidth
                         text: "|<"
-                        enabled: control.imageCount > 0
-                        onClicked: control.firstImage()
+                        enabled: imageData.imageCount > 0
+                        onClicked: control.imageAction("first")
                         ToolTip.visible: hovered
                         ToolTip.text: "First"
                     }
                     DarkButton {
                         width: navButtonRow.buttonWidth
                         text: "<<"
-                        enabled: control.imageCount > 0
-                        onClicked: control.previous10Images()
+                        enabled: imageData.imageCount > 0
+                        onClicked: control.imageAction("prev10")
                         ToolTip.visible: hovered
                         ToolTip.text: "Prev 10"
                     }
                     DarkButton {
                         width: navButtonRow.buttonWidth
                         text: "<"
-                        enabled: control.imageCount > 0
-                        onClicked: control.previousImage()
+                        enabled: imageData.imageCount > 0
+                        onClicked: control.imageAction("prev")
                         ToolTip.visible: hovered
                         ToolTip.text: "Prev"
                     }
                     DarkButton {
                         width: navButtonRow.buttonWidth
                         text: ">"
-                        enabled: control.imageCount > 0
-                        onClicked: control.nextImage()
+                        enabled: imageData.imageCount > 0
+                        onClicked: control.imageAction("next")
                         ToolTip.visible: hovered
                         ToolTip.text: "Next"
                     }
                     DarkButton {
                         width: navButtonRow.buttonWidth
                         text: ">>"
-                        enabled: control.imageCount > 0
-                        onClicked: control.next10Images()
+                        enabled: imageData.imageCount > 0
+                        onClicked: control.imageAction("next10")
                         ToolTip.visible: hovered
                         ToolTip.text: "Next 10"
                     }
                     DarkButton {
                         width: navButtonRow.buttonWidth
                         text: ">|"
-                        enabled: control.imageCount > 0
-                        onClicked: control.lastImage()
+                        enabled: imageData.imageCount > 0
+                        onClicked: control.imageAction("last")
                         ToolTip.visible: hovered
                         ToolTip.text: "Last"
                     }
                 }
 
                 Text {
-                    text: control.imageCount > 0
-                          ? ("Current: " + (control.currentImageIndex + 1) + " / " + control.imageCount)
+                    text: imageData.imageCount > 0
+                          ? ("Current: " + (imageData.currentImageIndex + 1) + " / " + imageData.imageCount)
                           : "Current: -"
                     color: root.textColor
                     font.pixelSize: 13
                 }
                 Text {
-                    text: baseName(control.currentImagePath)
+                    text: baseName(imageData.currentImagePath)
                     color: root.subTextColor
                     font.pixelSize: 11
                     wrapMode: Text.WrapAnywhere
@@ -512,8 +510,8 @@ ScrollView {
                     CheckBox {
                         id: showLabelCheck
                         text: "Label"
-                        checked: control.showLabel
-                        onToggled: control.showLabel = checked
+                        checked: visibilityData.showLabel
+                        onToggled: control.ioAction("set_visibility", { "key": "label", "enabled": checked })
                         contentItem: Text {
                             text: showLabelCheck.text
                             color: root.textColor
@@ -524,8 +522,8 @@ ScrollView {
                     CheckBox {
                         id: showPredictCheck
                         text: "Predict"
-                        checked: control.showPredict
-                        onToggled: control.showPredict = checked
+                        checked: visibilityData.showPredict
+                        onToggled: control.ioAction("set_visibility", { "key": "predict", "enabled": checked })
                         contentItem: Text {
                             text: showPredictCheck.text
                             color: root.textColor
@@ -536,8 +534,8 @@ ScrollView {
                     CheckBox {
                         id: showGoodCheck
                         text: "Good"
-                        checked: control.showGood
-                        onToggled: control.showGood = checked
+                        checked: visibilityData.showGood
+                        onToggled: control.ioAction("set_visibility", { "key": "good", "enabled": checked })
                         contentItem: Text {
                             text: showGoodCheck.text
                             color: root.textColor
@@ -548,7 +546,7 @@ ScrollView {
                 }
 
                 Text {
-                    text: "Draft points: " + control.draftPoints.length
+                    text: "Draft points: " + (annotationData.draftPoints || []).length
                     color: root.textColor
                     font.pixelSize: 13
                 }
@@ -562,14 +560,14 @@ ScrollView {
                     ComboBox {
                         id: classCombo
                         width: classRow.width - addClassButton.width - delClassButton.width - updateClassButton.width - (classRow.spacing * 3)
-                        model: control.classNames
+                        model: annotationData.classNames || []
                         editable: true
-                        currentIndex: Math.max(0, control.classNames.indexOf(control.currentClassName))
+                        currentIndex: Math.max(0, (annotationData.classNames || []).indexOf(annotationData.currentClassName))
                         editText: root.pendingClassName
                         onActivated: function(index) {
-                            if (index >= 0 && index < control.classNames.length) {
-                                root.pendingClassName = control.classNames[index]
-                                control.setCurrentClassName(control.classNames[index])
+                            if (index >= 0 && index < (annotationData.classNames || []).length) {
+                                root.pendingClassName = annotationData.classNames[index]
+                                control.annotationAction("set_current_class", { "className": annotationData.classNames[index] })
                             }
                         }
                         onEditTextChanged: root.pendingClassName = editText
@@ -582,7 +580,7 @@ ScrollView {
                             const name = classCombo.editText.trim()
                             if (name.length === 0)
                                 return
-                            if (control.addClassName(name)) {
+                            if (control.annotationAction("add_class", { "className": name })) {
                                 root.pendingClassName = name
                             }
                         }
@@ -595,8 +593,8 @@ ScrollView {
                             const name = classCombo.editText.trim()
                             if (name.length === 0)
                                 return
-                            if (control.deleteClassName(name)) {
-                                root.pendingClassName = control.currentClassName
+                            if (control.annotationAction("delete_class", { "className": name })) {
+                                root.pendingClassName = annotationData.currentClassName
                             }
                         }
                     }
@@ -604,8 +602,8 @@ ScrollView {
                         id: updateClassButton
                         width: 72
                         text: "Update"
-                        enabled: control.selectedPolygonIndex >= 0
-                        onClicked: control.updateSelectedAnnotationDetails(classCombo.editText.trim())
+                        enabled: annotationData.selectedPolygonIndex >= 0
+                        onClicked: control.annotationAction("update_details", { "className": classCombo.editText.trim() })
                     }
                 }
 
@@ -625,8 +623,8 @@ ScrollView {
                         id: typeLabelRadio
                         width: annCol.metaOptionWidth
                         text: "label"
-                        checked: control.annotationKind === "label"
-                        onClicked: control.annotationKind = "label"
+                        checked: annotationData.annotationKind === "label"
+                        onClicked: control.annotationAction("set_kind", { "kind": "label" })
                         contentItem: Text {
                             text: typeLabelRadio.text
                             color: root.textColor
@@ -638,8 +636,8 @@ ScrollView {
                         id: typePredictRadio
                         width: annCol.metaOptionWidth
                         text: "predict"
-                        checked: control.annotationKind === "predict"
-                        onClicked: control.annotationKind = "predict"
+                        checked: annotationData.annotationKind === "predict"
+                        onClicked: control.annotationAction("set_kind", { "kind": "predict" })
                         contentItem: Text {
                             text: typePredictRadio.text
                             color: root.textColor
@@ -651,8 +649,8 @@ ScrollView {
                         id: typeGoodRadio
                         width: annCol.metaOptionWidth
                         text: "good"
-                        checked: control.annotationKind === "good"
-                        onClicked: control.annotationKind = "good"
+                        checked: annotationData.annotationKind === "good"
+                        onClicked: control.annotationAction("set_kind", { "kind": "good" })
                         contentItem: Text {
                             text: typeGoodRadio.text
                             color: root.textColor
@@ -678,8 +676,8 @@ ScrollView {
                         id: levelSeriousRadio
                         width: annCol.metaOptionWidth
                         text: "serious"
-                        checked: control.annotationSeverity === "serious"
-                        onClicked: control.annotationSeverity = "serious"
+                        checked: annotationData.annotationSeverity === "serious"
+                        onClicked: control.annotationAction("set_severity", { "severity": "serious" })
                         contentItem: Text {
                             text: levelSeriousRadio.text
                             color: root.textColor
@@ -691,8 +689,8 @@ ScrollView {
                         id: levelNormalRadio
                         width: annCol.metaOptionWidth
                         text: "normal"
-                        checked: control.annotationSeverity === "normal"
-                        onClicked: control.annotationSeverity = "normal"
+                        checked: annotationData.annotationSeverity === "normal"
+                        onClicked: control.annotationAction("set_severity", { "severity": "normal" })
                         contentItem: Text {
                             text: levelNormalRadio.text
                             color: root.textColor
@@ -704,8 +702,8 @@ ScrollView {
                         id: levelMarginalRadio
                         width: annCol.metaOptionWidth
                         text: "marginal"
-                        checked: control.annotationSeverity === "marginal"
-                        onClicked: control.annotationSeverity = "marginal"
+                        checked: annotationData.annotationSeverity === "marginal"
+                        onClicked: control.annotationAction("set_severity", { "severity": "marginal" })
                         contentItem: Text {
                             text: levelMarginalRadio.text
                             color: root.textColor
@@ -731,8 +729,8 @@ ScrollView {
                         id: splitNoneRadio
                         width: annCol.metaOptionWidth
                         text: "none"
-                        checked: control.annotationSplit === "none"
-                        onClicked: control.annotationSplit = "none"
+                        checked: annotationData.annotationSplit === "none"
+                        onClicked: control.annotationAction("set_split", { "split": "none" })
                         contentItem: Text {
                             text: splitNoneRadio.text
                             color: root.textColor
@@ -744,8 +742,8 @@ ScrollView {
                         id: splitTrainRadio
                         width: annCol.metaOptionWidth
                         text: "train"
-                        checked: control.annotationSplit === "train"
-                        onClicked: control.annotationSplit = "train"
+                        checked: annotationData.annotationSplit === "train"
+                        onClicked: control.annotationAction("set_split", { "split": "train" })
                         contentItem: Text {
                             text: splitTrainRadio.text
                             color: root.textColor
@@ -757,8 +755,8 @@ ScrollView {
                         id: splitValRadio
                         width: annCol.metaOptionWidth
                         text: "val"
-                        checked: control.annotationSplit === "val"
-                        onClicked: control.annotationSplit = "val"
+                        checked: annotationData.annotationSplit === "val"
+                        onClicked: control.annotationAction("set_split", { "split": "val" })
                         contentItem: Text {
                             text: splitValRadio.text
                             color: root.textColor
@@ -770,8 +768,8 @@ ScrollView {
                         id: splitTestRadio
                         width: annCol.metaOptionWidth
                         text: "test"
-                        checked: control.annotationSplit === "test"
-                        onClicked: control.annotationSplit = "test"
+                        checked: annotationData.annotationSplit === "test"
+                        onClicked: control.annotationAction("set_split", { "split": "test" })
                         contentItem: Text {
                             text: splitTestRadio.text
                             color: root.textColor
@@ -784,7 +782,7 @@ ScrollView {
                 TextArea {
                     id: remarksField
                     width: parent.width
-                    text: control.annotationRemarks
+                    text: annotationData.annotationRemarks
                     placeholderText: "Remarks"
                     color: root.textColor
                     placeholderTextColor: "#7885a1"
@@ -799,8 +797,8 @@ ScrollView {
                         border.width: 1
                     }
                     onTextChanged: {
-                        if (text !== control.annotationRemarks) {
-                            control.annotationRemarks = text
+                        if (text !== annotationData.annotationRemarks) {
+                            control.annotationAction("set_remarks", { "remarks": text })
                         }
                     }
                 }
@@ -813,43 +811,43 @@ ScrollView {
                     DarkButton {
                         width: annotationActionRow.buttonWidth
                         text: "New"
-                        onClicked: control.startNewAnnotation()
+                        onClicked: control.annotationAction("start_new")
                     }
                     DarkButton {
                         width: annotationActionRow.buttonWidth
                         text: "Undo"
-                        enabled: control.draftPoints.length > 0
-                        onClicked: control.undoLastPoint()
+                        enabled: (annotationData.draftPoints || []).length > 0
+                        onClicked: control.annotationAction("undo")
                     }
                     DarkButton {
                         width: annotationActionRow.buttonWidth
                         text: "Clear"
-                        enabled: control.draftPoints.length > 0
-                        onClicked: control.clearDraftPoints()
+                        enabled: (annotationData.draftPoints || []).length > 0
+                        onClicked: control.annotationAction("clear")
                     }
                     DarkButton {
                         width: annotationActionRow.buttonWidth
                         text: "Save"
-                        enabled: control.draftPoints.length >= 3
-                        onClicked: control.saveCurrentAnnotation()
+                        enabled: (annotationData.draftPoints || []).length >= 3
+                        onClicked: control.annotationAction("save")
                     }
                     DarkButton {
                         width: annotationActionRow.buttonWidth
                         checkable: true
                         checked: root.editAnnotationMode
                         text: checked ? "Editing" : "Edit"
-                        enabled: control.selectedPolygonIndex >= 0
+                        enabled: annotationData.selectedPolygonIndex >= 0
                         onClicked: root.editAnnotationMode = checked
                     }
                     DarkButton {
                         width: annotationActionRow.buttonWidth
                         text: "Del"
-                        enabled: control.selectedPolygonIndex >= 0 || control.draftPoints.length > 0
+                        enabled: annotationData.selectedPolygonIndex >= 0 || (annotationData.draftPoints || []).length > 0
                         onClicked: {
-                            if (control.selectedPolygonIndex >= 0) {
-                                control.deleteSelectedAnnotation()
+                            if (annotationData.selectedPolygonIndex >= 0) {
+                                control.annotationAction("delete")
                             } else {
-                                control.clearDraftPoints()
+                                control.annotationAction("clear")
                             }
                         }
                     }
@@ -919,7 +917,7 @@ ScrollView {
 
                 Text { text: "Status"; color: root.subTextColor; font.pixelSize: 13 }
                 Text {
-                    text: control.status
+                    text: projectData.status
                     color: root.textColor
                     font.pixelSize: 12
                     wrapMode: Text.WrapAnywhere
@@ -1221,12 +1219,11 @@ ScrollView {
                             enabled: true
                             onClicked: {
                                 if (root.listMode === 0) {
-                                    if (root.control.selectImage(modelData.imageIndex)) {
+                                    if (root.control.imageAction("select", { "index": modelData.imageIndex })) {
                                         listPopup.close()
                                     }
                                 } else {
-                                    if (root.control.selectAnnotationFromList(modelData.imageIndex,
-                                                                              modelData.annotationIndex)) {
+                                    if (root.control.annotationAction("select_from_list", { "imageIndex": modelData.imageIndex, "annotationIndex": modelData.annotationIndex })) {
                                         listPopup.close()
                                     }
                                 }
@@ -1243,19 +1240,19 @@ ScrollView {
         title: "Select images"
         fileMode: FileDialog.OpenFiles
         nameFilters: ["Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)"]
-        onAccepted: root.control.importImageFileUrls(selectedFiles, root.replaceImagesOnImport)
+        onAccepted: root.control.imageAction("import_files", { "fileList": selectedFiles, "clearExisting": root.replaceImagesOnImport })
     }
 
     FolderDialog {
         id: folderDialog
         title: "Select image folder"
-        onAccepted: root.control.importImageFolder(selectedFolder.toString(), root.replaceImagesOnImport)
+        onAccepted: root.control.imageAction("import_folder", { "folderPath": selectedFolder.toString(), "clearExisting": root.replaceImagesOnImport })
     }
 
     FolderDialog {
         id: ioFolderDialog
         title: "Select import/export folder"
-        onAccepted: root.control.ioFolderPath = selectedFolder.toString()
+        onAccepted: root.control.ioAction("set_folder", { "folderPath": selectedFolder.toString() })
     }
 
     FileDialog {
@@ -1265,7 +1262,7 @@ ScrollView {
         nameFilters: ["Project (*.json)"]
         onAccepted: {
             if (selectedFile)
-                root.control.loadProjectFile(selectedFile.toString())
+                root.control.projectAction("load", { "projectPath": selectedFile.toString() })
         }
     }
 
@@ -1277,7 +1274,7 @@ ScrollView {
         nameFilters: ["Project (*.json)"]
         onAccepted: {
             if (selectedFile)
-                root.control.saveProjectAs(selectedFile.toString())
+                root.control.projectAction("save_as", { "projectPath": selectedFile.toString() })
         }
     }
 }

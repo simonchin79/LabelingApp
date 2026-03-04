@@ -19,10 +19,12 @@ Window {
     property color subTextColor: "#9aa7bf"
     property color accentColor: "#4da3ff"
     property var controlObj: control
+    property var uiState: controlObj ? controlObj.uiState : ({})
 
     Component.onCompleted: {
-        if (root.controlObj && root.controlObj.currentImageIndex >= 0)
-            root.controlObj.selectImage(root.controlObj.currentImageIndex)
+        const imageState = uiState.image || ({})
+        if (root.controlObj && imageState.currentImageIndex >= 0)
+            root.controlObj.imageAction("select", { "index": imageState.currentImageIndex })
     }
 
     Rectangle {
@@ -52,21 +54,32 @@ Window {
                         anchors.margins: 10
                         controller: root.controlObj
                         editMode: rightPanel.editAnnotationMode
-                        selectedPolygonIndex: root.controlObj.selectedPolygonIndex
-                        savedPolygons: root.controlObj.currentPolygons
-                        annotationPoints: root.controlObj.draftPoints
+                        selectedPolygonIndex: (uiState.annotation || {}).selectedPolygonIndex !== undefined
+                                             ? (uiState.annotation || {}).selectedPolygonIndex
+                                             : -1
+                        savedPolygons: (uiState.annotation || {}).currentPolygons || []
+                        annotationPoints: (uiState.annotation || {}).draftPoints || []
 
                         onImageClicked: function(x, y) {
-                            root.controlObj.addAnnotationPoint(x, y)
+                            root.controlObj.annotationAction("add_point", { "x": x, "y": y })
                         }
                         onAnnotationPointEdited: function(polygonIndex, pointIndex, x, y) {
-                            root.controlObj.updateAnnotationPoint(polygonIndex, pointIndex, x, y)
+                            root.controlObj.annotationAction("update_point", {
+                                                                 "polygonIndex": polygonIndex,
+                                                                 "pointIndex": pointIndex,
+                                                                 "x": x,
+                                                                 "y": y
+                                                             })
                         }
                         onDraftPointEdited: function(pointIndex, x, y) {
-                            root.controlObj.updateDraftPoint(pointIndex, x, y)
+                            root.controlObj.annotationAction("update_draft_point", {
+                                                                 "pointIndex": pointIndex,
+                                                                 "x": x,
+                                                                 "y": y
+                                                             })
                         }
                         onPolygonSelected: function(polygonIndex) {
-                            root.controlObj.setSelectedPolygonIndex(polygonIndex)
+                            root.controlObj.annotationAction("select", { "polygonIndex": polygonIndex })
                         }
                     }
                 }

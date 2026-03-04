@@ -24,96 +24,17 @@ class Mat;
 class Control : public QObject
 {
     Q_OBJECT
-    Q_PROPERTY(QString status READ status NOTIFY statusChanged)
-    Q_PROPERTY(QString projectName READ projectName NOTIFY projectChanged)
-    Q_PROPERTY(QString projectFilePath READ projectFilePath NOTIFY projectChanged)
-    Q_PROPERTY(QStringList imagePaths READ imagePaths NOTIFY imagePathsChanged)
-    Q_PROPERTY(int imageCount READ imageCount NOTIFY imagePathsChanged)
-    Q_PROPERTY(int currentImageIndex READ currentImageIndex NOTIFY currentImageChanged)
-    Q_PROPERTY(QString currentImagePath READ currentImagePath NOTIFY currentImageChanged)
-    Q_PROPERTY(QStringList classNames READ classNames NOTIFY classNamesChanged)
-    Q_PROPERTY(QString currentClassName READ currentClassName WRITE setCurrentClassName NOTIFY currentClassNameChanged)
-    Q_PROPERTY(QVariantList draftPoints READ draftPoints NOTIFY draftPointsChanged)
-    Q_PROPERTY(QVariantList currentPolygons READ currentPolygons NOTIFY currentPolygonsChanged)
-    Q_PROPERTY(int selectedPolygonIndex READ selectedPolygonIndex NOTIFY selectedPolygonIndexChanged)
-    Q_PROPERTY(QString selectedAnnotationClassName READ selectedAnnotationClassName NOTIFY selectedAnnotationClassNameChanged)
-    Q_PROPERTY(QString annotationRemarks READ annotationRemarks WRITE setAnnotationRemarks NOTIFY annotationFieldsChanged)
-    Q_PROPERTY(QString annotationKind READ annotationKind WRITE setAnnotationKind NOTIFY annotationFieldsChanged)
-    Q_PROPERTY(QString annotationSeverity READ annotationSeverity WRITE setAnnotationSeverity NOTIFY annotationFieldsChanged)
-    Q_PROPERTY(QString annotationSplit READ annotationSplit WRITE setAnnotationSplit NOTIFY annotationFieldsChanged)
-    Q_PROPERTY(bool showLabel READ showLabel WRITE setShowLabel NOTIFY typeVisibilityChanged)
-    Q_PROPERTY(bool showPredict READ showPredict WRITE setShowPredict NOTIFY typeVisibilityChanged)
-    Q_PROPERTY(bool showGood READ showGood WRITE setShowGood NOTIFY typeVisibilityChanged)
-    Q_PROPERTY(QString ioFolderPath READ ioFolderPath WRITE setIoFolderPath NOTIFY ioFolderPathChanged)
+    Q_PROPERTY(QVariantMap uiState READ uiState NOTIFY uiStateChanged)
 
 public:
     explicit Control(QObject *parent = nullptr);
 
-    QString status() const;
-    QString projectName() const;
-    QString projectFilePath() const;
-    QStringList imagePaths() const;
-    int imageCount() const;
-    int currentImageIndex() const;
-    QString currentImagePath() const;
-    QStringList classNames() const;
-    QString currentClassName() const;
-    QVariantList draftPoints() const;
-    QVariantList currentPolygons() const;
-    int selectedPolygonIndex() const;
-    QString selectedAnnotationClassName() const;
-    QString annotationRemarks() const;
-    QString annotationKind() const;
-    QString annotationSeverity() const;
-    QString annotationSplit() const;
-    void setAnnotationRemarks(const QString &remarks);
-    void setAnnotationKind(const QString &kind);
-    void setAnnotationSeverity(const QString &severity);
-    void setAnnotationSplit(const QString &split);
-    bool showLabel() const;
-    bool showPredict() const;
-    bool showGood() const;
-    void setShowLabel(bool enabled);
-    void setShowPredict(bool enabled);
-    void setShowGood(bool enabled);
-    QString ioFolderPath() const;
-    void setIoFolderPath(const QString &path);
-
-    Q_INVOKABLE bool createNewProject(const QString &preferredName);
-    Q_INVOKABLE bool loadProjectFile(const QVariant &projectFileUrlOrPath);
-    Q_INVOKABLE bool saveProjectAs(const QVariant &projectFileUrlOrPath);
-    Q_INVOKABLE bool importImageFolder(const QVariant &folderUrlOrPath, bool clearExisting);
-    Q_INVOKABLE bool importImageFiles(const QVariant &fileUrlList, bool clearExisting);
-    Q_INVOKABLE bool importImageFileUrls(const QList<QUrl> &fileUrls, bool clearExisting);
-    Q_INVOKABLE bool selectImage(int index);
-    Q_INVOKABLE bool firstImage();
-    Q_INVOKABLE bool lastImage();
-    Q_INVOKABLE bool nextImage();
-    Q_INVOKABLE bool previousImage();
-    Q_INVOKABLE bool next10Images();
-    Q_INVOKABLE bool previous10Images();
-    Q_INVOKABLE QVariantList imageSummaryList() const;
-    Q_INVOKABLE QVariantList annotationListForCurrentImage() const;
-    Q_INVOKABLE QVariantList annotationListForAllImages() const;
-    Q_INVOKABLE bool selectAnnotationFromList(int imageIndex, int annotationIndex);
-    Q_INVOKABLE bool importClassificationFromFolder(const QVariant &folderUrlOrPath, bool clearExisting);
-    Q_INVOKABLE bool exportClassificationToFolder(const QVariant &folderUrlOrPath);
-
-    Q_INVOKABLE bool addClassName(const QString &name);
-    Q_INVOKABLE bool deleteClassName(const QString &name);
-    Q_INVOKABLE void setCurrentClassName(const QString &name);
-
-    Q_INVOKABLE bool addAnnotationPoint(qreal x, qreal y);
-    Q_INVOKABLE bool updateDraftPoint(int pointIndex, qreal x, qreal y);
-    Q_INVOKABLE void startNewAnnotation();
-    Q_INVOKABLE void setSelectedPolygonIndex(int polygonIndex);
-    Q_INVOKABLE bool deleteSelectedAnnotation();
-    Q_INVOKABLE bool updateSelectedAnnotationClassName(const QString &className);
-    Q_INVOKABLE bool updateSelectedAnnotationDetails(const QString &className);
-    Q_INVOKABLE bool updateAnnotationPoint(int polygonIndex, int pointIndex, qreal x, qreal y);
-    Q_INVOKABLE bool undoLastPoint();
-    Q_INVOKABLE void clearDraftPoints();
-    Q_INVOKABLE bool saveCurrentAnnotation();
+    QVariantMap uiState() const;
+    Q_INVOKABLE bool projectAction(const QString &action, const QVariantMap &payload = QVariantMap());
+    Q_INVOKABLE bool imageAction(const QString &action, const QVariantMap &payload = QVariantMap());
+    Q_INVOKABLE QVariantList listAction(const QString &action, const QVariantMap &payload = QVariantMap()) const;
+    Q_INVOKABLE bool ioAction(const QString &action, const QVariantMap &payload = QVariantMap());
+    Q_INVOKABLE bool annotationAction(const QString &action, const QVariantMap &payload = QVariantMap());
 
 signals:
     void statusChanged();
@@ -129,9 +50,19 @@ signals:
     void annotationFieldsChanged();
     void typeVisibilityChanged();
     void ioFolderPathChanged();
+    void uiStateChanged();
     void imageReady(const QImage &image);
 
 private:
+    enum class ImageNavigation {
+        First,
+        Last,
+        Next,
+        Previous,
+        Next10,
+        Previous10
+    };
+
     struct AnnotationData {
         QString className;
         QString remarks;
@@ -143,8 +74,31 @@ private:
 
     static QImage matToQImage(const cv::Mat &mat);
     static QString normalizePath(const QVariant &urlOrPath);
+
+    QString currentImagePath() const;
+    QVariantList draftPoints() const;
+    QVariantList currentPolygons() const;
+    QString selectedAnnotationClassName() const;
+    void setIoFolderPath(const QString &path);
+    QVariantMap projectState() const;
+    QVariantMap imageState() const;
+    QVariantMap annotationState() const;
+    QVariantMap visibilityState() const;
+
+    bool executeProjectOperation(const QString &operationKey, const QVariant &value, const QVariantMap &payload);
+    void clearImageWorkspaceForImport();
+    bool importImagePaths(const QStringList &paths, bool clearExisting, const QString &emptyImportStatus);
+    bool selectImage(int index);
+    bool navigateImage(ImageNavigation navigation);
+    QVariantList imageSummaryList() const;
+    QVariantList annotationListForCurrentImage() const;
+    QVariantList annotationListForAllImages() const;
+    bool selectAnnotationFromList(int imageIndex, int annotationIndex);
+    bool importClassificationFromFolder(const QVariant &folderUrlOrPath, bool clearExisting);
+    bool exportClassificationToFolder(const QVariant &folderUrlOrPath);
     bool loadImageToView(const QString &path);
     void setStatus(const QString &status);
+    bool executeAnnotationOperation(const QString &operationKey, const QVariant &value, const QVariantMap &payload);
     bool saveProjectData();
     void setAnnotationFields(const QString &remarks, const QString &kind, const QString &severity, const QString &split);
     void resetAnnotationFieldsToDefault();

@@ -3,6 +3,7 @@
 
 #include <QObject>
 #include <QStringList>
+#include <QString>
 
 class SystemService;
 
@@ -20,6 +21,11 @@ public:
     QString normalizedSeverity(const QString &severity) const;
     QString normalizedSplit(const QString &split) const;
     bool upsertImagePathByFilename(QStringList &imagePaths, const QString &path, int *addedCount, int *updatedCount) const;
+    QString canonicalProjectAction(const QString &action) const;
+    QString canonicalImageAction(const QString &action) const;
+    QString canonicalAnnotationAction(const QString &action) const;
+    QString canonicalIoAction(const QString &action) const;
+    QString canonicalListAction(const QString &action) const;
 
 private:
     SystemService *m_systemService = nullptr;
