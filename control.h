@@ -35,6 +35,7 @@ public:
     Q_INVOKABLE QVariantList listAction(const QString &action, const QVariantMap &payload = QVariantMap()) const;
     Q_INVOKABLE bool ioAction(const QString &action, const QVariantMap &payload = QVariantMap());
     Q_INVOKABLE bool annotationAction(const QString &action, const QVariantMap &payload = QVariantMap());
+    Q_INVOKABLE bool trainAction(const QString &action, const QVariantMap &payload = QVariantMap());
 
 signals:
     void statusChanged();
@@ -50,6 +51,7 @@ signals:
     void annotationFieldsChanged();
     void typeVisibilityChanged();
     void ioFolderPathChanged();
+    void trainingSettingsChanged();
     void uiStateChanged();
     void imageReady(const QImage &image);
 
@@ -84,6 +86,7 @@ private:
     QVariantMap imageState() const;
     QVariantMap annotationState() const;
     QVariantMap visibilityState() const;
+    QVariantMap trainingState() const;
 
     bool executeProjectOperation(const QString &operationKey, const QVariant &value, const QVariantMap &payload);
     void clearImageWorkspaceForImport();
@@ -99,6 +102,7 @@ private:
     bool loadImageToView(const QString &path);
     void setStatus(const QString &status);
     bool executeAnnotationOperation(const QString &operationKey, const QVariant &value, const QVariantMap &payload);
+    bool applyDatasetSplitToAnnotations();
     bool saveProjectData();
     void setAnnotationFields(const QString &remarks, const QString &kind, const QString &severity, const QString &split);
     void resetAnnotationFieldsToDefault();
@@ -126,6 +130,7 @@ private:
     bool m_showPredict = true;
     bool m_showGood = true;
     QString m_ioFolderPath;
+    int m_lastTabIndex = 0;
     QVector<QPointF> m_draftPoints;
     QHash<QString, QList<AnnotationData>> m_annotations;
     int m_selectedPolygonIndex = -1;

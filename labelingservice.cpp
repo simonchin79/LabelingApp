@@ -172,6 +172,8 @@ QString LabelingService::canonicalIoAction(const QString &action) const
                         {
                             {QStringLiteral("set_folder"), {QStringLiteral("set_folder"), QStringLiteral("browse")}},
                             {QStringLiteral("set_visibility"), {QStringLiteral("set_visibility"), QStringLiteral("visibility")}},
+                            {QStringLiteral("set_tab_index"),
+                             {QStringLiteral("set_tab_index"), QStringLiteral("tab"), QStringLiteral("tab_index")}},
                             {QStringLiteral("import_classification"),
                              {QStringLiteral("import_classification"), QStringLiteral("import")}},
                             {QStringLiteral("export_classification"),

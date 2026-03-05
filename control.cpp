@@ -10,6 +10,7 @@
 #include <QImageReader>
 #include <QSet>
 #include <QUrl>
+#include <algorithm>
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -22,6 +23,7 @@ const QString kShowLabelKey = QStringLiteral("ui/showLabel");
 const QString kShowPredictKey = QStringLiteral("ui/showPredict");
 const QString kShowGoodKey = QStringLiteral("ui/showGood");
 const QString kIoFolderPathKey = QStringLiteral("io/lastFolderPath");
+const QString kLastRightTabIndexKey = QStringLiteral("ui/lastRightTabIndex");
 
 enum class ProjectTask {
     Unknown,
@@ -47,6 +49,7 @@ enum class IoTask {
     Unknown,
     SetFolder,
     SetVisibility,
+    SetTabIndex,
     ImportClassification,
     ExportClassification
 };
@@ -129,6 +132,9 @@ IoTask toIoTask(const QString &task)
     if (task == QStringLiteral("set_visibility")) {
         return IoTask::SetVisibility;
     }
+    if (task == QStringLiteral("set_tab_index")) {
+        return IoTask::SetTabIndex;
+    }
     if (task == QStringLiteral("import_classification")) {
         return IoTask::ImportClassification;
     }
@@ -208,7 +214,7 @@ Control::Control(QObject *parent)
     : QObject(parent)
     , m_systemService(this)
     , m_labelingService(&m_systemService, this)
-    , m_trainService(this)
+    , m_trainService(&m_systemService, this)
     , m_inferenceService(this)
 {
     connect(this, &Control::statusChanged, this, &Control::uiStateChanged);
@@ -224,12 +230,15 @@ Control::Control(QObject *parent)
     connect(this, &Control::annotationFieldsChanged, this, &Control::uiStateChanged);
     connect(this, &Control::typeVisibilityChanged, this, &Control::uiStateChanged);
     connect(this, &Control::ioFolderPathChanged, this, &Control::uiStateChanged);
+    connect(this, &Control::trainingSettingsChanged, this, &Control::uiStateChanged);
+    connect(&m_trainService, &TrainService::settingsChanged, this, &Control::trainingSettingsChanged);
 
     m_status = QStringLiteral("Create a project to start labeling");
     m_showLabel = m_systemService.loadAppValue(kShowLabelKey, true).toBool();
     m_showPredict = m_systemService.loadAppValue(kShowPredictKey, true).toBool();
     m_showGood = m_systemService.loadAppValue(kShowGoodKey, true).toBool();
     m_ioFolderPath = m_systemService.loadAppValue(kIoFolderPathKey).toString();
+    m_lastTabIndex = qMax(0, m_systemService.loadAppValue(kLastRightTabIndexKey, 0).toInt());
     if (!restoreLastSession()) {
         setStatus(QStringLiteral("Create a project to start labeling"));
     }
@@ -356,7 +365,13 @@ QVariantMap Control::visibilityState() const
     state.insert(QStringLiteral("showPredict"), m_showPredict);
     state.insert(QStringLiteral("showGood"), m_showGood);
     state.insert(QStringLiteral("ioFolderPath"), m_ioFolderPath);
+    state.insert(QStringLiteral("lastTabIndex"), m_lastTabIndex);
     return state;
+}
+
+QVariantMap Control::trainingState() const
+{
+    return m_trainService.state();
 }
 
 QVariantMap Control::uiState() const
@@ -366,6 +381,7 @@ QVariantMap Control::uiState() const
     state.insert(QStringLiteral("image"), imageState());
     state.insert(QStringLiteral("annotation"), annotationState());
     state.insert(QStringLiteral("visibility"), visibilityState());
+    state.insert(QStringLiteral("training"), trainingState());
     return state;
 }
 
@@ -563,6 +579,22 @@ bool Control::projectAction(const QString &action, const QVariantMap &payload)
 
     setStatus(QStringLiteral("Unknown project action: %1").arg(action));
     return false;
+}
+
+bool Control::trainAction(const QString &action, const QVariantMap &payload)
+{
+    const QString opKey = payload.value(QStringLiteral("key")).toString().trimmed();
+    const QString op = opKey.isEmpty() ? action.trimmed() : opKey;
+    if (!m_trainService.action(op, payload)) {
+        setStatus(QStringLiteral("Unknown or failed training action: %1").arg(op));
+        return false;
+    }
+
+    if (op.compare(QStringLiteral("split_dataset"), Qt::CaseInsensitive) == 0) {
+        return applyDatasetSplitToAnnotations();
+    }
+
+    return true;
 }
 
 void Control::clearImageWorkspaceForImport()
@@ -1170,6 +1202,16 @@ bool Control::ioAction(const QString &action, const QVariantMap &payload)
         setStatus(QStringLiteral("Unknown visibility key: %1").arg(key));
         return false;
     }
+    case IoTask::SetTabIndex: {
+        const int index = qMax(0, payload.value(QStringLiteral("index"), 0).toInt());
+        if (m_lastTabIndex == index) {
+            return true;
+        }
+        m_lastTabIndex = index;
+        m_systemService.saveAppValue(kLastRightTabIndexKey, m_lastTabIndex);
+        emit uiStateChanged();
+        return true;
+    }
     case IoTask::ImportClassification:
         return importClassificationFromFolder(payload.value(QStringLiteral("folderPath")),
                                               payload.value(QStringLiteral("clearExisting"), false).toBool());
@@ -1697,6 +1739,77 @@ void Control::setStatus(const QString &status)
 
     m_status = status;
     emit statusChanged();
+}
+
+bool Control::applyDatasetSplitToAnnotations()
+{
+    if (m_imagePaths.isEmpty()) {
+        setStatus(QStringLiteral("No images available for split"));
+        return false;
+    }
+
+    const QVariantMap tstate = m_trainService.state();
+    const int trainCount = qMax(0, tstate.value(QStringLiteral("splitTrainCount"), 0).toInt());
+    const int valCount = qMax(0, tstate.value(QStringLiteral("splitValCount"), 0).toInt());
+    const int testCount = qMax(0, tstate.value(QStringLiteral("splitTestCount"), 0).toInt());
+    if (trainCount + valCount + testCount <= 0) {
+        setStatus(QStringLiteral("Split counts are zero"));
+        return false;
+    }
+
+    QStringList orderedPaths = m_imagePaths;
+    std::sort(orderedPaths.begin(), orderedPaths.end(), [](const QString &a, const QString &b) {
+        return QFileInfo(a).fileName().compare(QFileInfo(b).fileName(), Qt::CaseInsensitive) < 0;
+    });
+
+    int index = 0;
+    int updated = 0;
+    for (const QString &path : orderedPaths) {
+        QString split = QStringLiteral("test");
+        if (index < trainCount) {
+            split = QStringLiteral("train");
+        } else if (index < trainCount + valCount) {
+            split = QStringLiteral("val");
+        }
+        ++index;
+
+        const QString key = m_labelingService.annotationKeyForPath(path);
+        auto it = m_annotations.find(key);
+        if (it == m_annotations.end()) {
+            continue;
+        }
+
+        QList<AnnotationData> &annList = it.value();
+        for (AnnotationData &ann : annList) {
+            const QString normalized = m_labelingService.normalizedSplit(split);
+            if (ann.split != normalized) {
+                ann.split = normalized;
+                ++updated;
+            }
+        }
+    }
+
+    if (m_selectedPolygonIndex >= 0) {
+        const QList<AnnotationData> annList = currentImageAnnotations();
+        if (m_selectedPolygonIndex < annList.size()) {
+            const AnnotationData &ann = annList.at(m_selectedPolygonIndex);
+            setAnnotationFields(ann.remarks, ann.kind, ann.severity, ann.split);
+        }
+    }
+
+    emit currentPolygonsChanged();
+
+    if (!saveProjectData()) {
+        setStatus(QStringLiteral("Split updated but failed to save project"));
+        return false;
+    }
+
+    setStatus(QStringLiteral("Split applied: train=%1 val=%2 test=%3, updated=%4")
+                  .arg(trainCount)
+                  .arg(valCount)
+                  .arg(testCount)
+                  .arg(updated));
+    return true;
 }
 
 bool Control::saveProjectData()

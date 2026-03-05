@@ -5,6 +5,7 @@ import QtQuick.Layouts
 Rectangle {
     id: root
     required property var control
+    property var uiState: control ? control.uiState : ({})
     property color panelColor: "#1a1f2b"
     property color cardColor: "#222836"
     property color borderColor: "#2f3646"
@@ -12,6 +13,7 @@ Rectangle {
     property color subTextColor: "#9aa7bf"
     property color accentColor: "#4da3ff"
     property alias editAnnotationMode: labelingTab.editAnnotationMode
+    property bool tabInitialized: false
 
     color: root.panelColor
     border.color: root.borderColor
@@ -48,6 +50,19 @@ Rectangle {
                 }
             }
         }
+
+        Component.onCompleted: {
+            const visibility = root.uiState.visibility || ({})
+            const idx = Number(visibility.lastTabIndex || 0)
+            currentIndex = Math.max(0, Math.min(3, idx))
+            root.tabInitialized = true
+        }
+
+        onCurrentIndexChanged: {
+            if (!root.tabInitialized || !root.control)
+                return
+            root.control.ioAction("set_tab_index", { "index": currentIndex })
+        }
     }
 
     StackLayout {
@@ -76,25 +91,34 @@ Rectangle {
         TrainingTab {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            control: root.control
             cardColor: root.cardColor
             borderColor: root.borderColor
+            textColor: root.textColor
             subTextColor: root.subTextColor
+            accentColor: root.accentColor
         }
 
         InferenceTab {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            control: root.control
             cardColor: root.cardColor
             borderColor: root.borderColor
+            textColor: root.textColor
             subTextColor: root.subTextColor
+            accentColor: root.accentColor
         }
 
         SettingsTab {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            control: root.control
             cardColor: root.cardColor
             borderColor: root.borderColor
+            textColor: root.textColor
             subTextColor: root.subTextColor
+            accentColor: root.accentColor
         }
     }
 }

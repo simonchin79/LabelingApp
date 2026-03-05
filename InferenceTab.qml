@@ -3,10 +3,12 @@ import QtQuick.Controls
 
 ScrollView {
     id: root
+    property var control
     property color cardColor: "#222836"
     property color borderColor: "#2f3646"
     property color textColor: "#e6ebf5"
     property color subTextColor: "#9aa7bf"
+    property color accentColor: "#4da3ff"
 
     Column {
         width: root.width - 24
