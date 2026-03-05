@@ -14,11 +14,33 @@ ScrollView {
     property var uiState: control ? control.uiState : ({})
     property var trainingData: uiState.training || ({})
     property int labelWidth: 92
+    property bool pathsExpanded: true
 
     function saveSetting(setting, value) {
         if (!root.control)
             return
         root.control.trainAction("set_setting", { "setting": setting, "value": value })
+    }
+
+    Component.onCompleted: {
+        if (trainingData.pathsExpanded !== undefined)
+            pathsExpanded = Boolean(trainingData.pathsExpanded)
+    }
+
+    onPathsExpandedChanged: {
+        root.saveSetting("uiPathsExpanded", pathsExpanded)
+    }
+
+    Connections {
+        target: root.control
+        function onUiStateChanged() {
+            const td = ((root.control.uiState || {}).training || {})
+            if (td.pathsExpanded !== undefined) {
+                const v = Boolean(td.pathsExpanded)
+                if (root.pathsExpanded !== v)
+                    root.pathsExpanded = v
+            }
+        }
     }
 
     component DarkButton: Button {
@@ -89,6 +111,16 @@ ScrollView {
         }
     }
 
+    FolderDialog {
+        id: dockerMountFolderDialog
+        title: "Select Docker Host Mount Path"
+        onAccepted: {
+            const path = selectedFolder.toString().replace("file://", "")
+            dockerHostMountField.text = path
+            root.saveSetting("dockerHostMountPath", path)
+        }
+    }
+
     Column {
         width: root.width - 24
         spacing: 10
@@ -99,85 +131,162 @@ ScrollView {
             radius: 10
             border.color: root.borderColor
             border.width: 1
-            implicitHeight: settingsCol.implicitHeight + 20
+            implicitHeight: settingsWrap.implicitHeight + 20
 
             Column {
-                id: settingsCol
+                id: settingsWrap
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.margins: 10
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 8
 
-                Text {
-                    text: "Training Paths (System Config)"
-                    color: root.subTextColor
-                    font.pixelSize: 13
-                }
-
-                RowLayout {
+                Button {
+                    id: pathsToggle
                     width: parent.width
-                    spacing: 8
-                    Text {
-                        Layout.preferredWidth: 120
-                        text: "Python Script"
+                    text: (root.pathsExpanded ? "▼ " : "▶ ") + "Training Paths (System Config)"
+                    onClicked: root.pathsExpanded = !root.pathsExpanded
+                    contentItem: Text {
+                        text: pathsToggle.text
                         color: root.subTextColor
                         verticalAlignment: Text.AlignVCenter
                     }
-                    DarkField {
-                        id: pythonPathField
-                        Layout.fillWidth: true
-                        text: String(root.trainingData.pythonFilePath || "")
-                        onEditingFinished: root.saveSetting("pythonFilePath", text)
-                    }
-                    DarkButton {
-                        Layout.preferredWidth: 72
-                        text: "Browse"
-                        onClicked: pythonFileDialog.open()
+                    background: Rectangle {
+                        color: "transparent"
+                        border.color: root.borderColor
+                        border.width: 1
+                        radius: 6
                     }
                 }
 
-                RowLayout {
+                Column {
                     width: parent.width
                     spacing: 8
-                    Text {
-                        Layout.preferredWidth: 120
-                        text: "Pred JSON"
-                        color: root.subTextColor
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    DarkField {
-                        id: predictionPathField
-                        Layout.fillWidth: true
-                        text: String(root.trainingData.predictionJsonPath || "")
-                        onEditingFinished: root.saveSetting("predictionJsonPath", text)
-                    }
-                    DarkButton {
-                        Layout.preferredWidth: 72
-                        text: "Browse"
-                        onClicked: predictionFileDialog.open()
-                    }
-                }
+                    visible: root.pathsExpanded
 
-                RowLayout {
-                    width: parent.width
-                    spacing: 8
-                    Text {
-                        Layout.preferredWidth: 120
-                        text: "Best Model"
-                        color: root.subTextColor
-                        verticalAlignment: Text.AlignVCenter
+                    RowLayout {
+                        width: parent.width
+                        spacing: 8
+                        Text {
+                            Layout.preferredWidth: 120
+                            text: "Python Script"
+                            color: root.subTextColor
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        DarkField {
+                            id: pythonPathField
+                            Layout.fillWidth: true
+                            text: String(root.trainingData.pythonFilePath || "")
+                            onEditingFinished: root.saveSetting("pythonFilePath", text)
+                        }
+                        DarkButton {
+                            Layout.preferredWidth: 72
+                            text: "Browse"
+                            onClicked: pythonFileDialog.open()
+                        }
                     }
-                    DarkField {
-                        id: bestModelPathField
-                        Layout.fillWidth: true
-                        text: String(root.trainingData.bestModelPath || "")
-                        onEditingFinished: root.saveSetting("bestModelPath", text)
+
+                    RowLayout {
+                        width: parent.width
+                        spacing: 8
+                        Text {
+                            Layout.preferredWidth: 120
+                            text: "Pred JSON"
+                            color: root.subTextColor
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        DarkField {
+                            id: predictionPathField
+                            Layout.fillWidth: true
+                            text: String(root.trainingData.predictionJsonPath || "")
+                            onEditingFinished: root.saveSetting("predictionJsonPath", text)
+                        }
+                        DarkButton {
+                            Layout.preferredWidth: 72
+                            text: "Browse"
+                            onClicked: predictionFileDialog.open()
+                        }
                     }
-                    DarkButton {
-                        Layout.preferredWidth: 72
-                        text: "Browse"
-                        onClicked: modelFileDialog.open()
+
+                    RowLayout {
+                        width: parent.width
+                        spacing: 8
+                        Text {
+                            Layout.preferredWidth: 120
+                            text: "Best Model"
+                            color: root.subTextColor
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        DarkField {
+                            id: bestModelPathField
+                            Layout.fillWidth: true
+                            text: String(root.trainingData.bestModelPath || "")
+                            onEditingFinished: root.saveSetting("bestModelPath", text)
+                        }
+                        DarkButton {
+                            Layout.preferredWidth: 72
+                            text: "Browse"
+                            onClicked: modelFileDialog.open()
+                        }
+                    }
+
+                    RowLayout {
+                        width: parent.width
+                        spacing: 8
+                        Text {
+                            Layout.preferredWidth: 120
+                            text: "Docker Image"
+                            color: root.subTextColor
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        DarkField {
+                            id: dockerImageField
+                            Layout.fillWidth: true
+                            text: String(root.trainingData.dockerImage || "")
+                            placeholderText: "e.g. myorg/cls-train:latest"
+                            onEditingFinished: root.saveSetting("dockerImage", text)
+                        }
+                    }
+
+                    RowLayout {
+                        width: parent.width
+                        spacing: 8
+                        Text {
+                            Layout.preferredWidth: 120
+                            text: "Host Mount"
+                            color: root.subTextColor
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        DarkField {
+                            id: dockerHostMountField
+                            Layout.fillWidth: true
+                            text: String(root.trainingData.dockerHostMountPath || "")
+                            placeholderText: "e.g. /host/project"
+                            onEditingFinished: root.saveSetting("dockerHostMountPath", text)
+                        }
+                        DarkButton {
+                            Layout.preferredWidth: 72
+                            text: "Browse"
+                            onClicked: dockerMountFolderDialog.open()
+                        }
+                    }
+
+                    RowLayout {
+                        width: parent.width
+                        spacing: 8
+                        Text {
+                            Layout.preferredWidth: 120
+                            text: "Container WD"
+                            color: root.subTextColor
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        DarkField {
+                            id: dockerWorkDirField
+                            Layout.fillWidth: true
+                            text: String(root.trainingData.dockerContainerWorkDir || "/workspace")
+                            placeholderText: "/workspace"
+                            onEditingFinished: root.saveSetting("dockerContainerWorkDir", text)
+                        }
                     }
                 }
             }

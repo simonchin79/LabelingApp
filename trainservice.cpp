@@ -10,6 +10,9 @@
 
 namespace {
 const QString kTrainingPythonFilePathKey = QStringLiteral("training/pythonFilePath");
+const QString kTrainingDockerImageKey = QStringLiteral("training/dockerImage");
+const QString kTrainingDockerHostMountPathKey = QStringLiteral("training/dockerHostMountPath");
+const QString kTrainingDockerContainerWorkDirKey = QStringLiteral("training/dockerContainerWorkDir");
 const QString kTrainingPredictionJsonPathKey = QStringLiteral("training/predictionJsonPath");
 const QString kTrainingBestModelPathKey = QStringLiteral("training/bestModelPath");
 const QString kTrainingEpochsKey = QStringLiteral("training/epochs");
@@ -25,6 +28,7 @@ const QString kTrainingSplitTestCountKey = QStringLiteral("training/splitTestCou
 const QString kTrainingSplitTrainPercentKey = QStringLiteral("training/splitTrainPercent");
 const QString kTrainingSplitValPercentKey = QStringLiteral("training/splitValPercent");
 const QString kTrainingSplitTestPercentKey = QStringLiteral("training/splitTestPercent");
+const QString kTrainingUiPathsExpandedKey = QStringLiteral("training/uiPathsExpanded");
 }
 
 TrainService::TrainService(SystemService *systemService, QObject *parent)
@@ -76,6 +80,9 @@ QVariantMap TrainService::state() const
 {
     QVariantMap data;
     data.insert(QStringLiteral("pythonFilePath"), m_pythonFilePath);
+    data.insert(QStringLiteral("dockerImage"), m_dockerImage);
+    data.insert(QStringLiteral("dockerHostMountPath"), m_dockerHostMountPath);
+    data.insert(QStringLiteral("dockerContainerWorkDir"), m_dockerContainerWorkDir);
     data.insert(QStringLiteral("predictionJsonPath"), m_predictionJsonPath);
     data.insert(QStringLiteral("bestModelPath"), m_bestModelPath);
     data.insert(QStringLiteral("epochs"), m_epochs);
@@ -91,6 +98,7 @@ QVariantMap TrainService::state() const
     data.insert(QStringLiteral("splitTrainPercent"), m_splitTrainPercent);
     data.insert(QStringLiteral("splitValPercent"), m_splitValPercent);
     data.insert(QStringLiteral("splitTestPercent"), m_splitTestPercent);
+    data.insert(QStringLiteral("pathsExpanded"), m_uiPathsExpanded);
     data.insert(QStringLiteral("running"), m_running);
     data.insert(QStringLiteral("progress"), m_progress);
     data.insert(QStringLiteral("status"), m_status);
@@ -166,6 +174,28 @@ bool TrainService::setSetting(const QString &key, const QVariant &value)
         if (m_pythonFilePath != v) {
             m_pythonFilePath = v;
             m_systemService->saveAppValue(kTrainingPythonFilePathKey, m_pythonFilePath);
+            changed = true;
+        }
+    } else if (setting == QStringLiteral("dockerImage")) {
+        const QString v = value.toString().trimmed();
+        if (m_dockerImage != v) {
+            m_dockerImage = v;
+            m_systemService->saveAppValue(kTrainingDockerImageKey, m_dockerImage);
+            changed = true;
+        }
+    } else if (setting == QStringLiteral("dockerHostMountPath")) {
+        const QString v = SystemService::normalizePath(value);
+        if (m_dockerHostMountPath != v) {
+            m_dockerHostMountPath = v;
+            m_systemService->saveAppValue(kTrainingDockerHostMountPathKey, m_dockerHostMountPath);
+            changed = true;
+        }
+    } else if (setting == QStringLiteral("dockerContainerWorkDir")) {
+        const QString v = value.toString().trimmed();
+        const QString normalized = v.isEmpty() ? QStringLiteral("/workspace") : v;
+        if (m_dockerContainerWorkDir != normalized) {
+            m_dockerContainerWorkDir = normalized;
+            m_systemService->saveAppValue(kTrainingDockerContainerWorkDirKey, m_dockerContainerWorkDir);
             changed = true;
         }
     } else if (setting == QStringLiteral("predictionJsonPath")) {
@@ -273,6 +303,13 @@ bool TrainService::setSetting(const QString &key, const QVariant &value)
             m_systemService->saveAppValue(kTrainingSplitTestPercentKey, m_splitTestPercent);
             changed = true;
         }
+    } else if (setting == QStringLiteral("uiPathsExpanded")) {
+        const bool v = value.toBool();
+        if (m_uiPathsExpanded != v) {
+            m_uiPathsExpanded = v;
+            m_systemService->saveAppValue(kTrainingUiPathsExpandedKey, m_uiPathsExpanded);
+            changed = true;
+        }
     } else {
         return false;
     }
@@ -298,6 +335,13 @@ void TrainService::loadFromConfig()
         return;
     }
     m_pythonFilePath = m_systemService->loadAppValue(kTrainingPythonFilePathKey).toString();
+    m_dockerImage = m_systemService->loadAppValue(kTrainingDockerImageKey).toString();
+    m_dockerHostMountPath = m_systemService->loadAppValue(kTrainingDockerHostMountPathKey).toString();
+    m_dockerContainerWorkDir =
+        m_systemService->loadAppValue(kTrainingDockerContainerWorkDirKey, QStringLiteral("/workspace")).toString();
+    if (m_dockerContainerWorkDir.trimmed().isEmpty()) {
+        m_dockerContainerWorkDir = QStringLiteral("/workspace");
+    }
     m_predictionJsonPath = m_systemService->loadAppValue(kTrainingPredictionJsonPathKey).toString();
     m_bestModelPath = m_systemService->loadAppValue(kTrainingBestModelPathKey).toString();
     m_epochs = qMax(1, m_systemService->loadAppValue(kTrainingEpochsKey, 40).toInt());
@@ -313,6 +357,7 @@ void TrainService::loadFromConfig()
     m_splitTrainPercent = qMax(0, m_systemService->loadAppValue(kTrainingSplitTrainPercentKey, 60).toInt());
     m_splitValPercent = qMax(0, m_systemService->loadAppValue(kTrainingSplitValPercentKey, 30).toInt());
     m_splitTestPercent = qMax(0, m_systemService->loadAppValue(kTrainingSplitTestPercentKey, 10).toInt());
+    m_uiPathsExpanded = m_systemService->loadAppValue(kTrainingUiPathsExpandedKey, true).toBool();
 }
 
 void TrainService::appendLogLine(const QString &line)
@@ -359,13 +404,47 @@ bool TrainService::startTraining(const QVariantMap &payload)
         return false;
     }
 
-    QString program = payload.value(QStringLiteral("pythonExe")).toString().trimmed();
-    if (program.isEmpty()) {
-        program = QStringLiteral("python3");
+    QStringList args;
+    QString program;
+    QString workingDir = scriptInfo.absoluteDir().absolutePath();
+
+    if (!m_dockerImage.trimmed().isEmpty()) {
+        program = payload.value(QStringLiteral("dockerExe")).toString().trimmed();
+        if (program.isEmpty()) {
+            program = QStringLiteral("docker");
+        }
+
+        QString hostMount = m_dockerHostMountPath.trimmed();
+        if (hostMount.isEmpty()) {
+            hostMount = scriptInfo.absoluteDir().absolutePath();
+        }
+
+        QString containerWorkDir = m_dockerContainerWorkDir.trimmed();
+        if (containerWorkDir.isEmpty()) {
+            containerWorkDir = QStringLiteral("/workspace");
+        }
+
+        QString relativeScript = QDir(hostMount).relativeFilePath(m_pythonFilePath);
+        if (relativeScript.startsWith(QStringLiteral(".."))) {
+            relativeScript = QFileInfo(m_pythonFilePath).fileName();
+        }
+        const QString containerScriptPath = QDir(containerWorkDir).filePath(relativeScript);
+
+        args << QStringLiteral("run")
+             << QStringLiteral("--rm")
+             << QStringLiteral("-v") << QStringLiteral("%1:%2").arg(hostMount, containerWorkDir)
+             << QStringLiteral("-w") << containerWorkDir
+             << m_dockerImage.trimmed()
+             << QStringLiteral("python3")
+             << containerScriptPath;
+    } else {
+        program = payload.value(QStringLiteral("pythonExe")).toString().trimmed();
+        if (program.isEmpty()) {
+            program = QStringLiteral("python3");
+        }
+        args.push_back(m_pythonFilePath);
     }
 
-    QStringList args;
-    args.push_back(m_pythonFilePath);
     if (!m_backbone.trimmed().isEmpty()) {
         args.push_back(QStringLiteral("--backbone"));
         args.push_back(m_backbone.trimmed());
@@ -377,7 +456,7 @@ bool TrainService::startTraining(const QVariantMap &payload)
     m_status = QStringLiteral("Training started");
     emit settingsChanged();
 
-    m_process->setWorkingDirectory(scriptInfo.absoluteDir().absolutePath());
+    m_process->setWorkingDirectory(workingDir);
     m_process->start(program, args);
     if (!m_process->waitForStarted(3000)) {
         m_running = false;

@@ -33,6 +33,9 @@ private:
     SystemService *m_systemService = nullptr;
     QProcess *m_process = nullptr;
     QString m_pythonFilePath;
+    QString m_dockerImage;
+    QString m_dockerHostMountPath;
+    QString m_dockerContainerWorkDir = QStringLiteral("/workspace");
     QString m_predictionJsonPath;
     QString m_bestModelPath;
     int m_epochs = 40;
@@ -48,6 +51,7 @@ private:
     int m_splitTrainPercent = 60;
     int m_splitValPercent = 30;
     int m_splitTestPercent = 10;
+    bool m_uiPathsExpanded = true;
     bool m_running = false;
     int m_progress = 0;
     QString m_status = QStringLiteral("Idle");
