@@ -36,6 +36,7 @@ public:
     Q_INVOKABLE bool ioAction(const QString &action, const QVariantMap &payload = QVariantMap());
     Q_INVOKABLE bool annotationAction(const QString &action, const QVariantMap &payload = QVariantMap());
     Q_INVOKABLE bool trainAction(const QString &action, const QVariantMap &payload = QVariantMap());
+    Q_INVOKABLE bool inferenceAction(const QString &action, const QVariantMap &payload = QVariantMap());
 
 signals:
     void statusChanged();
@@ -52,6 +53,7 @@ signals:
     void typeVisibilityChanged();
     void ioFolderPathChanged();
     void trainingSettingsChanged();
+    void inferenceSettingsChanged();
     void uiStateChanged();
     void imageReady(const QImage &image);
 
@@ -74,6 +76,15 @@ private:
         QVector<QPointF> points;
     };
 
+    struct ImagePredictionData {
+        QString predClass;
+        double predScore = 0.0;
+        bool hasPredScore = false;
+        QString gradcamPath;
+        QString modelName;
+        QString checkpointPath;
+    };
+
     static QImage matToQImage(const cv::Mat &mat);
     static QString normalizePath(const QVariant &urlOrPath);
 
@@ -87,6 +98,7 @@ private:
     QVariantMap annotationState() const;
     QVariantMap visibilityState() const;
     QVariantMap trainingState() const;
+    QVariantMap inferenceState() const;
 
     bool executeProjectOperation(const QString &operationKey, const QVariant &value, const QVariantMap &payload);
     void clearImageWorkspaceForImport();
@@ -131,8 +143,11 @@ private:
     bool m_showGood = true;
     QString m_ioFolderPath;
     int m_lastTabIndex = 0;
+    bool m_projectSectionExpanded = true;
+    bool m_importSectionExpanded = true;
     QVector<QPointF> m_draftPoints;
     QHash<QString, QList<AnnotationData>> m_annotations;
+    QHash<QString, ImagePredictionData> m_imagePredictions;
     int m_selectedPolygonIndex = -1;
     bool m_draftModeActive = false;
 };

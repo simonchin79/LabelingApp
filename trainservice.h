@@ -2,6 +2,7 @@
 #define TRAINSERVICE_H
 
 #include <QObject>
+#include <QHash>
 #include <QVariant>
 #include <QVariantMap>
 
@@ -24,38 +25,59 @@ signals:
     void settingsChanged();
 
 private:
+    struct TaskSettings {
+        QString pythonFilePath;
+        QString dockerImage;
+        QString dockerHostMountPath;
+        QString dockerContainerWorkDir = QStringLiteral("/workspace");
+        QString predictionJsonPath;
+        QString bestModelPath;
+        int epochs = 40;
+        int batchSize = 64;
+        int numWorkers = 8;
+        int inputSize = 224;
+        double learningRate = 1e-3;
+        double weightDecay = 1e-4;
+        QString backbone = QStringLiteral("efficientnet_b0");
+    };
+
+    static QStringList supportedTaskTypes();
+    TaskSettings taskSettingsFor(const QString &taskType) const;
+    TaskSettings &editableTaskSettingsFor(const QString &taskType);
+    QString activeTaskType() const;
+    QVariantMap taskSettingsToVariantMap(const TaskSettings &settings) const;
+    QString taskConfigKey(const QString &taskType, const QString &field) const;
+
     void loadFromConfig();
     void appendLogLine(const QString &line);
+    void parseStatsFromLine(const QString &line);
     void parseProgressFromLine(const QString &line);
+    void loadResultSummaryFromProjectConfig();
     bool startTraining(const QVariantMap &payload);
     bool stopTraining();
 
     SystemService *m_systemService = nullptr;
     QProcess *m_process = nullptr;
-    QString m_pythonFilePath;
-    QString m_dockerImage;
-    QString m_dockerHostMountPath;
-    QString m_dockerContainerWorkDir = QStringLiteral("/workspace");
-    QString m_predictionJsonPath;
-    QString m_bestModelPath;
-    int m_epochs = 40;
-    int m_batchSize = 64;
-    int m_numWorkers = 8;
-    int m_inputSize = 224;
-    double m_learningRate = 1e-3;
-    double m_weightDecay = 1e-4;
-    QString m_backbone = QStringLiteral("efficientnet_b0");
+    QHash<QString, TaskSettings> m_taskSettings;
+    QString m_selectedTaskType = QStringLiteral("classification");
     int m_splitTrainCount = 0;
     int m_splitValCount = 0;
     int m_splitTestCount = 0;
     int m_splitTrainPercent = 60;
     int m_splitValPercent = 30;
     int m_splitTestPercent = 10;
+    int m_splitSeed = 42;
     bool m_uiPathsExpanded = true;
+    bool m_uiHyperparamsExpanded = true;
+    bool m_uiSplitExpanded = true;
     bool m_running = false;
     int m_progress = 0;
     QString m_status = QStringLiteral("Idle");
+    QVariantMap m_stats;
+    QVariantList m_confusionMatrix;
+    QStringList m_confusionClassNames;
     QStringList m_logLines;
+    QString m_lastProjectFilePath;
 };
 
 #endif // TRAINSERVICE_H

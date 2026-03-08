@@ -11,6 +11,8 @@
 #include <QSet>
 #include <QUrl>
 #include <algorithm>
+#include <limits>
+#include <random>
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -24,6 +26,8 @@ const QString kShowPredictKey = QStringLiteral("ui/showPredict");
 const QString kShowGoodKey = QStringLiteral("ui/showGood");
 const QString kIoFolderPathKey = QStringLiteral("io/lastFolderPath");
 const QString kLastRightTabIndexKey = QStringLiteral("ui/lastRightTabIndex");
+const QString kProjectSectionExpandedKey = QStringLiteral("ui/labeling/projectExpanded");
+const QString kImportSectionExpandedKey = QStringLiteral("ui/labeling/importExpanded");
 
 enum class ProjectTask {
     Unknown,
@@ -50,6 +54,7 @@ enum class IoTask {
     SetFolder,
     SetVisibility,
     SetTabIndex,
+    SetSectionExpanded,
     ImportClassification,
     ExportClassification
 };
@@ -135,6 +140,9 @@ IoTask toIoTask(const QString &task)
     if (task == QStringLiteral("set_tab_index")) {
         return IoTask::SetTabIndex;
     }
+    if (task == QStringLiteral("set_section_expanded")) {
+        return IoTask::SetSectionExpanded;
+    }
     if (task == QStringLiteral("import_classification")) {
         return IoTask::ImportClassification;
     }
@@ -215,7 +223,7 @@ Control::Control(QObject *parent)
     , m_systemService(this)
     , m_labelingService(&m_systemService, this)
     , m_trainService(&m_systemService, this)
-    , m_inferenceService(this)
+    , m_inferenceService(&m_systemService, this)
 {
     connect(this, &Control::statusChanged, this, &Control::uiStateChanged);
     connect(this, &Control::projectChanged, this, &Control::uiStateChanged);
@@ -231,7 +239,9 @@ Control::Control(QObject *parent)
     connect(this, &Control::typeVisibilityChanged, this, &Control::uiStateChanged);
     connect(this, &Control::ioFolderPathChanged, this, &Control::uiStateChanged);
     connect(this, &Control::trainingSettingsChanged, this, &Control::uiStateChanged);
+    connect(this, &Control::inferenceSettingsChanged, this, &Control::uiStateChanged);
     connect(&m_trainService, &TrainService::settingsChanged, this, &Control::trainingSettingsChanged);
+    connect(&m_inferenceService, &InferenceService::settingsChanged, this, &Control::inferenceSettingsChanged);
 
     m_status = QStringLiteral("Create a project to start labeling");
     m_showLabel = m_systemService.loadAppValue(kShowLabelKey, true).toBool();
@@ -239,6 +249,8 @@ Control::Control(QObject *parent)
     m_showGood = m_systemService.loadAppValue(kShowGoodKey, true).toBool();
     m_ioFolderPath = m_systemService.loadAppValue(kIoFolderPathKey).toString();
     m_lastTabIndex = qMax(0, m_systemService.loadAppValue(kLastRightTabIndexKey, 0).toInt());
+    m_projectSectionExpanded = m_systemService.loadAppValue(kProjectSectionExpandedKey, true).toBool();
+    m_importSectionExpanded = m_systemService.loadAppValue(kImportSectionExpandedKey, true).toBool();
     if (!restoreLastSession()) {
         setStatus(QStringLiteral("Create a project to start labeling"));
     }
@@ -366,12 +378,19 @@ QVariantMap Control::visibilityState() const
     state.insert(QStringLiteral("showGood"), m_showGood);
     state.insert(QStringLiteral("ioFolderPath"), m_ioFolderPath);
     state.insert(QStringLiteral("lastTabIndex"), m_lastTabIndex);
+    state.insert(QStringLiteral("projectSectionExpanded"), m_projectSectionExpanded);
+    state.insert(QStringLiteral("importSectionExpanded"), m_importSectionExpanded);
     return state;
 }
 
 QVariantMap Control::trainingState() const
 {
     return m_trainService.state();
+}
+
+QVariantMap Control::inferenceState() const
+{
+    return m_inferenceService.state();
 }
 
 QVariantMap Control::uiState() const
@@ -382,6 +401,7 @@ QVariantMap Control::uiState() const
     state.insert(QStringLiteral("annotation"), annotationState());
     state.insert(QStringLiteral("visibility"), visibilityState());
     state.insert(QStringLiteral("training"), trainingState());
+    state.insert(QStringLiteral("inference"), inferenceState());
     return state;
 }
 
@@ -463,6 +483,34 @@ bool Control::executeProjectOperation(const QString &operationKey, const QVarian
             }
 
             m_imagePaths.push_back(pathValue);
+            const QString imageKey = m_labelingService.annotationKeyForPath(pathValue);
+
+            ImagePredictionData prediction;
+            prediction.predClass = imgObj.value(QStringLiteral("predClass")).toString();
+            if (imgObj.contains(QStringLiteral("predScore")) && imgObj.value(QStringLiteral("predScore")).isDouble()) {
+                prediction.predScore = imgObj.value(QStringLiteral("predScore")).toDouble();
+                prediction.hasPredScore = true;
+            }
+            prediction.gradcamPath = imgObj.value(QStringLiteral("gradcamPath")).toString();
+
+            const QJsonObject predictionObj = imgObj.value(QStringLiteral("prediction")).toObject();
+            if (prediction.predClass.isEmpty()) {
+                prediction.predClass = predictionObj.value(QStringLiteral("className")).toString();
+            }
+            if (!prediction.hasPredScore && predictionObj.contains(QStringLiteral("score"))
+                && predictionObj.value(QStringLiteral("score")).isDouble()) {
+                prediction.predScore = predictionObj.value(QStringLiteral("score")).toDouble();
+                prediction.hasPredScore = true;
+            }
+            if (prediction.gradcamPath.isEmpty()) {
+                prediction.gradcamPath = predictionObj.value(QStringLiteral("gradcamPath")).toString();
+            }
+            prediction.modelName = predictionObj.value(QStringLiteral("modelName")).toString();
+            prediction.checkpointPath = predictionObj.value(QStringLiteral("checkpointPath")).toString();
+            if (!prediction.predClass.isEmpty() || prediction.hasPredScore || !prediction.gradcamPath.isEmpty()
+                || !prediction.modelName.isEmpty() || !prediction.checkpointPath.isEmpty()) {
+                m_imagePredictions.insert(imageKey, prediction);
+            }
 
             QList<AnnotationData> imageAnnotations;
             const QJsonArray anns = imgObj.value(QStringLiteral("annotations")).toArray();
@@ -489,7 +537,7 @@ bool Control::executeProjectOperation(const QString &operationKey, const QVarian
             }
 
             if (!imageAnnotations.isEmpty()) {
-                m_annotations.insert(m_labelingService.annotationKeyForPath(pathValue), imageAnnotations);
+                m_annotations.insert(imageKey, imageAnnotations);
             }
         }
 
@@ -597,10 +645,20 @@ bool Control::trainAction(const QString &action, const QVariantMap &payload)
     return true;
 }
 
+bool Control::inferenceAction(const QString &action, const QVariantMap &payload)
+{
+    if (!m_inferenceService.action(action, payload)) {
+        setStatus(QStringLiteral("Unknown or failed inference action: %1").arg(action));
+        return false;
+    }
+    return true;
+}
+
 void Control::clearImageWorkspaceForImport()
 {
     m_imagePaths.clear();
     m_annotations.clear();
+    m_imagePredictions.clear();
     m_currentImageIndex = -1;
     m_draftPoints.clear();
     m_selectedPolygonIndex = -1;
@@ -837,7 +895,9 @@ QVariantList Control::annotationListForCurrentImage() const
 
     const QString path = m_imagePaths.at(m_currentImageIndex);
     const QString fileName = QFileInfo(path).fileName();
-    const QList<AnnotationData> annList = m_annotations.value(m_labelingService.annotationKeyForPath(path));
+    const QString imageKey = m_labelingService.annotationKeyForPath(path);
+    const QList<AnnotationData> annList = m_annotations.value(imageKey);
+    const ImagePredictionData pred = m_imagePredictions.value(imageKey);
     list.reserve(annList.size());
 
     for (int annIndex = 0; annIndex < annList.size(); ++annIndex) {
@@ -851,6 +911,10 @@ QVariantList Control::annotationListForCurrentImage() const
         row.insert(QStringLiteral("level"), m_labelingService.normalizedSeverity(ann.severity));
         row.insert(QStringLiteral("split"), m_labelingService.normalizedSplit(ann.split));
         row.insert(QStringLiteral("remarks"), ann.remarks);
+        row.insert(QStringLiteral("predClass"), pred.predClass);
+        if (pred.hasPredScore) {
+            row.insert(QStringLiteral("predScore"), pred.predScore);
+        }
         list.push_back(row);
     }
 
@@ -863,7 +927,9 @@ QVariantList Control::annotationListForAllImages() const
     for (int imageIndex = 0; imageIndex < m_imagePaths.size(); ++imageIndex) {
         const QString &path = m_imagePaths.at(imageIndex);
         const QString fileName = QFileInfo(path).fileName();
-        const QList<AnnotationData> annList = m_annotations.value(m_labelingService.annotationKeyForPath(path));
+        const QString imageKey = m_labelingService.annotationKeyForPath(path);
+        const QList<AnnotationData> annList = m_annotations.value(imageKey);
+        const ImagePredictionData pred = m_imagePredictions.value(imageKey);
         for (int annIndex = 0; annIndex < annList.size(); ++annIndex) {
             const AnnotationData &ann = annList.at(annIndex);
             QVariantMap row;
@@ -875,6 +941,10 @@ QVariantList Control::annotationListForAllImages() const
             row.insert(QStringLiteral("level"), m_labelingService.normalizedSeverity(ann.severity));
             row.insert(QStringLiteral("split"), m_labelingService.normalizedSplit(ann.split));
             row.insert(QStringLiteral("remarks"), ann.remarks);
+            row.insert(QStringLiteral("predClass"), pred.predClass);
+            if (pred.hasPredScore) {
+                row.insert(QStringLiteral("predScore"), pred.predScore);
+            }
             list.push_back(row);
         }
     }
@@ -1211,6 +1281,30 @@ bool Control::ioAction(const QString &action, const QVariantMap &payload)
         m_systemService.saveAppValue(kLastRightTabIndexKey, m_lastTabIndex);
         emit uiStateChanged();
         return true;
+    }
+    case IoTask::SetSectionExpanded: {
+        const QString section = payload.value(QStringLiteral("section")).toString().trimmed().toLower();
+        const bool expanded = payload.value(QStringLiteral("expanded"), true).toBool();
+        if (section == QStringLiteral("project")) {
+            if (m_projectSectionExpanded == expanded) {
+                return true;
+            }
+            m_projectSectionExpanded = expanded;
+            m_systemService.saveAppValue(kProjectSectionExpandedKey, m_projectSectionExpanded);
+            emit uiStateChanged();
+            return true;
+        }
+        if (section == QStringLiteral("import")) {
+            if (m_importSectionExpanded == expanded) {
+                return true;
+            }
+            m_importSectionExpanded = expanded;
+            m_systemService.saveAppValue(kImportSectionExpandedKey, m_importSectionExpanded);
+            emit uiStateChanged();
+            return true;
+        }
+        setStatus(QStringLiteral("Unknown section key: %1").arg(section));
+        return false;
     }
     case IoTask::ImportClassification:
         return importClassificationFromFolder(payload.value(QStringLiteral("folderPath")),
@@ -1752,15 +1846,15 @@ bool Control::applyDatasetSplitToAnnotations()
     const int trainCount = qMax(0, tstate.value(QStringLiteral("splitTrainCount"), 0).toInt());
     const int valCount = qMax(0, tstate.value(QStringLiteral("splitValCount"), 0).toInt());
     const int testCount = qMax(0, tstate.value(QStringLiteral("splitTestCount"), 0).toInt());
+    const int splitSeed = tstate.value(QStringLiteral("splitSeed"), 42).toInt();
     if (trainCount + valCount + testCount <= 0) {
         setStatus(QStringLiteral("Split counts are zero"));
         return false;
     }
 
     QStringList orderedPaths = m_imagePaths;
-    std::sort(orderedPaths.begin(), orderedPaths.end(), [](const QString &a, const QString &b) {
-        return QFileInfo(a).fileName().compare(QFileInfo(b).fileName(), Qt::CaseInsensitive) < 0;
-    });
+    std::mt19937 rng(static_cast<std::mt19937::result_type>(splitSeed));
+    std::shuffle(orderedPaths.begin(), orderedPaths.end(), rng);
 
     int index = 0;
     int updated = 0;
@@ -1804,7 +1898,8 @@ bool Control::applyDatasetSplitToAnnotations()
         return false;
     }
 
-    setStatus(QStringLiteral("Split applied: train=%1 val=%2 test=%3, updated=%4")
+    setStatus(QStringLiteral("Split applied (seed=%1): train=%2 val=%3 test=%4, updated=%5")
+                  .arg(splitSeed)
                   .arg(trainCount)
                   .arg(valCount)
                   .arg(testCount)
@@ -1831,9 +1926,40 @@ bool Control::saveProjectData()
     for (const QString &path : m_imagePaths) {
         QJsonObject imgObj;
         imgObj.insert(QStringLiteral("path"), path);
+        const QString imageKey = m_labelingService.annotationKeyForPath(path);
+        const ImagePredictionData pred = m_imagePredictions.value(imageKey);
+        if (!pred.predClass.isEmpty()) {
+            imgObj.insert(QStringLiteral("predClass"), pred.predClass);
+        }
+        if (pred.hasPredScore) {
+            imgObj.insert(QStringLiteral("predScore"), pred.predScore);
+        }
+        if (!pred.gradcamPath.isEmpty()) {
+            imgObj.insert(QStringLiteral("gradcamPath"), pred.gradcamPath);
+        }
+        if (!pred.predClass.isEmpty() || pred.hasPredScore || !pred.gradcamPath.isEmpty() || !pred.modelName.isEmpty()
+            || !pred.checkpointPath.isEmpty()) {
+            QJsonObject predictionObj;
+            if (!pred.predClass.isEmpty()) {
+                predictionObj.insert(QStringLiteral("className"), pred.predClass);
+            }
+            if (pred.hasPredScore) {
+                predictionObj.insert(QStringLiteral("score"), pred.predScore);
+            }
+            if (!pred.gradcamPath.isEmpty()) {
+                predictionObj.insert(QStringLiteral("gradcamPath"), pred.gradcamPath);
+            }
+            if (!pred.modelName.isEmpty()) {
+                predictionObj.insert(QStringLiteral("modelName"), pred.modelName);
+            }
+            if (!pred.checkpointPath.isEmpty()) {
+                predictionObj.insert(QStringLiteral("checkpointPath"), pred.checkpointPath);
+            }
+            imgObj.insert(QStringLiteral("prediction"), predictionObj);
+        }
 
         QJsonArray anns;
-        const QList<AnnotationData> annList = m_annotations.value(m_labelingService.annotationKeyForPath(path));
+        const QList<AnnotationData> annList = m_annotations.value(imageKey);
         for (const AnnotationData &ann : annList) {
             QJsonObject annObj;
             annObj.insert(QStringLiteral("className"), ann.className);
@@ -1928,6 +2054,7 @@ void Control::resetState()
     m_annotationSplit = QStringLiteral("none");
     m_draftPoints.clear();
     m_annotations.clear();
+    m_imagePredictions.clear();
     m_selectedPolygonIndex = -1;
     m_draftModeActive = false;
 

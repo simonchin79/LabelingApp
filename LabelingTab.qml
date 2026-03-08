@@ -13,6 +13,8 @@ ScrollView {
     property bool replaceImagesOnImport: false
     property bool editAnnotationMode: false
     property string pendingClassName: ""
+    property bool projectExpanded: true
+    property bool importExpanded: true
     property int listMode: 0 // 0=image, 1=current anno, 2=all anno
     property var listRows: []
     property var uiState: control ? control.uiState : ({})
@@ -30,7 +32,7 @@ ScrollView {
     }
 
     function compareValues(left, right, key) {
-        const numericKeys = ["labelCount", "predictCount", "goodCount", "imageIndex", "annotationIndex"]
+        const numericKeys = ["labelCount", "predictCount", "goodCount", "imageIndex", "annotationIndex", "predScore"]
         if (numericKeys.indexOf(key) >= 0) {
             const l = Number(left || 0)
             const r = Number(right || 0)
@@ -94,12 +96,16 @@ ScrollView {
             const levelValue = String(row.level || "").toLowerCase()
             const splitValue = String(row.split || "").toLowerCase()
             const remarksValue = String(row.remarks || "").toLowerCase()
+            const predClass = String(row.predClass || "").toLowerCase()
+            const predScore = String(row.predScore !== undefined ? row.predScore : "").toLowerCase()
             if (imageFileName.indexOf(keyword) >= 0
                     || className.indexOf(keyword) >= 0
                     || typeValue === keyword
                     || levelValue === keyword
                     || splitValue === keyword
-                    || remarksValue.indexOf(keyword) >= 0)
+                    || remarksValue.indexOf(keyword) >= 0
+                    || predClass.indexOf(keyword) >= 0
+                    || predScore.indexOf(keyword) >= 0)
                 filtered.push(sourceRows[i])
         }
         root.listRows = applySort(filtered)
@@ -111,7 +117,7 @@ ScrollView {
             sortKey = "fileName"
             sortAscending = true
         }
-        if (mode !== 0 && ["imageFileName", "className", "type", "level", "split", "remarks"].indexOf(sortKey) < 0) {
+        if (mode !== 0 && ["imageFileName", "className", "type", "level", "split", "predClass", "predScore", "remarks"].indexOf(sortKey) < 0) {
             sortKey = "imageFileName"
             sortAscending = true
         }
@@ -187,6 +193,10 @@ ScrollView {
     Component.onCompleted: {
         root.pendingClassName = String(annotationData.currentClassName || "")
         projectNameField.text = String(projectData.projectName || "")
+        if (visibilityData.projectSectionExpanded !== undefined)
+            projectExpanded = Boolean(visibilityData.projectSectionExpanded)
+        if (visibilityData.importSectionExpanded !== undefined)
+            importExpanded = Boolean(visibilityData.importSectionExpanded)
     }
 
     Connections {
@@ -195,12 +205,17 @@ ScrollView {
         function onUiStateChanged() {
             const anno = root.annotationData
             const project = root.projectData
+            const vis = ((root.control.uiState || {}).visibility || {})
             if (anno.selectedPolygonIndex >= 0 && String(anno.selectedAnnotationClassName || "").length > 0) {
                 root.pendingClassName = String(anno.selectedAnnotationClassName || "")
             } else if (anno.selectedPolygonIndex < 0) {
                 root.pendingClassName = String(anno.currentClassName || "")
             }
             projectNameField.text = String(project.projectName || "")
+            if (vis.projectSectionExpanded !== undefined)
+                root.projectExpanded = Boolean(vis.projectSectionExpanded)
+            if (vis.importSectionExpanded !== undefined)
+                root.importExpanded = Boolean(vis.importSectionExpanded)
         }
     }
 
@@ -225,10 +240,32 @@ ScrollView {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 8
 
-                Text { text: "Project"; color: root.subTextColor; font.pixelSize: 13 }
+                Button {
+                    id: projectToggle
+                    width: parent.width
+                    text: (root.projectExpanded ? "▼ " : "▶ ") + "Project"
+                    onClicked: {
+                        root.projectExpanded = !root.projectExpanded
+                        control.ioAction("set_section_expanded", { "section": "project", "expanded": root.projectExpanded })
+                    }
+
+                    contentItem: Text {
+                        text: projectToggle.text
+                        color: root.subTextColor
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+                    }
+                    background: Rectangle {
+                        radius: 6
+                        color: projectToggle.down ? "#30394b" : "#283043"
+                        border.color: root.borderColor
+                        border.width: 1
+                    }
+                }
 
                 TextField {
                     id: projectNameField
+                    visible: root.projectExpanded
                     placeholderText: "Preferred project name"
                     color: root.textColor
                     placeholderTextColor: "#7885a1"
@@ -244,6 +281,7 @@ ScrollView {
 
                 Row {
                     id: projectActionRow
+                    visible: root.projectExpanded
                     width: parent.width
                     spacing: 8
                     DarkButton {
@@ -277,6 +315,7 @@ ScrollView {
                 }
 
                 Text {
+                    visible: root.projectExpanded
                     text: projectData.projectFilePath
                     color: root.subTextColor
                     font.pixelSize: 11
@@ -303,10 +342,32 @@ ScrollView {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 8
 
-                Text { text: "Import Images"; color: root.subTextColor; font.pixelSize: 13 }
+                Button {
+                    id: importToggle
+                    width: parent.width
+                    text: (root.importExpanded ? "▼ " : "▶ ") + "Import/Export"
+                    onClicked: {
+                        root.importExpanded = !root.importExpanded
+                        control.ioAction("set_section_expanded", { "section": "import", "expanded": root.importExpanded })
+                    }
+
+                    contentItem: Text {
+                        text: importToggle.text
+                        color: root.subTextColor
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+                    }
+                    background: Rectangle {
+                        radius: 6
+                        color: importToggle.down ? "#30394b" : "#283043"
+                        border.color: root.borderColor
+                        border.width: 1
+                    }
+                }
 
                 Row {
                     id: importActionRow
+                    visible: root.importExpanded
                     width: parent.width
                     spacing: 8
                     DarkButton {
@@ -337,6 +398,7 @@ ScrollView {
 
                 Row {
                     id: ioActionRow
+                    visible: root.importExpanded
                     width: parent.width
                     spacing: 8
 
@@ -376,6 +438,7 @@ ScrollView {
                 }
 
                 Text {
+                    visible: root.importExpanded
                     text: "I/O Folder: " + (String(visibilityData.ioFolderPath || "").length > 0
                                             ? visibilityData.ioFolderPath
                                             : "-")
@@ -385,6 +448,7 @@ ScrollView {
                 }
 
                 Text {
+                    visible: root.importExpanded
                     text: "Images: " + imageData.imageCount
                     color: root.textColor
                     font.pixelSize: 13
@@ -479,6 +543,28 @@ ScrollView {
                     color: root.subTextColor
                     font.pixelSize: 11
                     wrapMode: Text.WrapAnywhere
+                }
+
+                Row {
+                    id: navListActionRow
+                    width: parent.width
+                    spacing: 8
+
+                    DarkButton {
+                        width: Math.floor((navListActionRow.width - navListActionRow.spacing * 2) / 3)
+                        text: "Image List"
+                        onClicked: root.openListPopup(0)
+                    }
+                    DarkButton {
+                        width: Math.floor((navListActionRow.width - navListActionRow.spacing * 2) / 3)
+                        text: "Anno List"
+                        onClicked: root.openListPopup(1)
+                    }
+                    DarkButton {
+                        width: Math.floor((navListActionRow.width - navListActionRow.spacing * 2) / 3)
+                        text: "All List"
+                        onClicked: root.openListPopup(2)
+                    }
                 }
             }
         }
@@ -855,49 +941,6 @@ ScrollView {
             }
         }
 
-        // listActions
-        Rectangle {
-            width: parent.width
-            color: root.cardColor
-            radius: 10
-            border.color: root.borderColor
-            border.width: 1
-            implicitHeight: listActionCol.implicitHeight + 20
-
-            Column {
-                id: listActionCol
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.margins: 10
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: 8
-
-                Text { text: "Lists"; color: root.subTextColor; font.pixelSize: 13 }
-
-                Row {
-                    id: listActionRow
-                    width: parent.width
-                    spacing: 8
-
-                    DarkButton {
-                        width: Math.floor((listActionRow.width - listActionRow.spacing * 2) / 3)
-                        text: "Image List"
-                        onClicked: root.openListPopup(0)
-                    }
-                    DarkButton {
-                        width: Math.floor((listActionRow.width - listActionRow.spacing * 2) / 3)
-                        text: "Anno List"
-                        onClicked: root.openListPopup(1)
-                    }
-                    DarkButton {
-                        width: Math.floor((listActionRow.width - listActionRow.spacing * 2) / 3)
-                        text: "All List"
-                        onClicked: root.openListPopup(2)
-                    }
-                }
-            }
-        }
-
         // statusCol
         Rectangle {
             width: parent.width
@@ -1049,35 +1092,49 @@ ScrollView {
 
                     SortHeader {
                         visible: root.listMode !== 0
-                        width: root.listMode !== 0 ? Math.floor(parent.width * 0.12) : 0
+                        width: root.listMode !== 0 ? Math.floor(parent.width * 0.10) : 0
                         label: "Class"
                         sortId: "className"
                         height: parent.height
                     }
                     SortHeader {
                         visible: root.listMode !== 0
-                        width: root.listMode !== 0 ? Math.floor(parent.width * 0.10) : 0
+                        width: root.listMode !== 0 ? Math.floor(parent.width * 0.08) : 0
                         label: "Type"
                         sortId: "type"
                         height: parent.height
                     }
                     SortHeader {
                         visible: root.listMode !== 0
-                        width: root.listMode !== 0 ? Math.floor(parent.width * 0.10) : 0
+                        width: root.listMode !== 0 ? Math.floor(parent.width * 0.08) : 0
                         label: "Level"
                         sortId: "level"
                         height: parent.height
                     }
                     SortHeader {
                         visible: root.listMode !== 0
-                        width: root.listMode !== 0 ? Math.floor(parent.width * 0.10) : 0
+                        width: root.listMode !== 0 ? Math.floor(parent.width * 0.08) : 0
                         label: "Split"
                         sortId: "split"
                         height: parent.height
                     }
                     SortHeader {
                         visible: root.listMode !== 0
-                        width: root.listMode !== 0 ? Math.floor(parent.width * 0.25) : 0
+                        width: root.listMode !== 0 ? Math.floor(parent.width * 0.10) : 0
+                        label: "Pred"
+                        sortId: "predClass"
+                        height: parent.height
+                    }
+                    SortHeader {
+                        visible: root.listMode !== 0
+                        width: root.listMode !== 0 ? Math.floor(parent.width * 0.08) : 0
+                        label: "Score"
+                        sortId: "predScore"
+                        height: parent.height
+                    }
+                    SortHeader {
+                        visible: root.listMode !== 0
+                        width: root.listMode !== 0 ? Math.floor(parent.width * 0.20) : 0
                         label: "Remarks"
                         sortId: "remarks"
                         height: parent.height
@@ -1167,7 +1224,7 @@ ScrollView {
 
                             Text {
                                 visible: root.listMode !== 0
-                                width: root.listMode !== 0 ? Math.floor(parent.width * 0.12) : 0
+                                width: root.listMode !== 0 ? Math.floor(parent.width * 0.10) : 0
                                 text: root.listMode !== 0 ? (modelData.className || "") : ""
                                 color: root.textColor
                                 font.pixelSize: 12
@@ -1177,7 +1234,7 @@ ScrollView {
                             }
                             Text {
                                 visible: root.listMode !== 0
-                                width: root.listMode !== 0 ? Math.floor(parent.width * 0.10) : 0
+                                width: root.listMode !== 0 ? Math.floor(parent.width * 0.08) : 0
                                 text: root.listMode !== 0 ? (modelData.type || "") : ""
                                 color: root.textColor
                                 font.pixelSize: 12
@@ -1186,7 +1243,7 @@ ScrollView {
                             }
                             Text {
                                 visible: root.listMode !== 0
-                                width: root.listMode !== 0 ? Math.floor(parent.width * 0.10) : 0
+                                width: root.listMode !== 0 ? Math.floor(parent.width * 0.08) : 0
                                 text: root.listMode !== 0 ? (modelData.level || "") : ""
                                 color: root.textColor
                                 font.pixelSize: 12
@@ -1195,7 +1252,7 @@ ScrollView {
                             }
                             Text {
                                 visible: root.listMode !== 0
-                                width: root.listMode !== 0 ? Math.floor(parent.width * 0.10) : 0
+                                width: root.listMode !== 0 ? Math.floor(parent.width * 0.08) : 0
                                 text: root.listMode !== 0 ? (modelData.split || "") : ""
                                 color: root.textColor
                                 font.pixelSize: 12
@@ -1204,7 +1261,31 @@ ScrollView {
                             }
                             Text {
                                 visible: root.listMode !== 0
-                                width: root.listMode !== 0 ? Math.floor(parent.width * 0.25) : 0
+                                width: root.listMode !== 0 ? Math.floor(parent.width * 0.10) : 0
+                                text: root.listMode !== 0 ? (modelData.predClass || "") : ""
+                                color: root.textColor
+                                font.pixelSize: 12
+                                height: parent.height
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                            }
+                            Text {
+                                visible: root.listMode !== 0
+                                width: root.listMode !== 0 ? Math.floor(parent.width * 0.08) : 0
+                                text: {
+                                    if (root.listMode === 0 || modelData.predScore === undefined || modelData.predScore === null)
+                                        return ""
+                                    const s = Number(modelData.predScore)
+                                    return isNaN(s) ? "" : s.toFixed(4)
+                                }
+                                color: root.textColor
+                                font.pixelSize: 12
+                                height: parent.height
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            Text {
+                                visible: root.listMode !== 0
+                                width: root.listMode !== 0 ? Math.floor(parent.width * 0.20) : 0
                                 text: root.listMode !== 0 ? (modelData.remarks || "") : ""
                                 color: root.textColor
                                 font.pixelSize: 12

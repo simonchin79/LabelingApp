@@ -174,6 +174,8 @@ QString LabelingService::canonicalIoAction(const QString &action) const
                             {QStringLiteral("set_visibility"), {QStringLiteral("set_visibility"), QStringLiteral("visibility")}},
                             {QStringLiteral("set_tab_index"),
                              {QStringLiteral("set_tab_index"), QStringLiteral("tab"), QStringLiteral("tab_index")}},
+                            {QStringLiteral("set_section_expanded"),
+                             {QStringLiteral("set_section_expanded"), QStringLiteral("section_expanded"), QStringLiteral("section")}},
                             {QStringLiteral("import_classification"),
                              {QStringLiteral("import_classification"), QStringLiteral("import")}},
                             {QStringLiteral("export_classification"),

@@ -13,8 +13,13 @@ ScrollView {
     property color accentColor: "#4da3ff"
     property var uiState: control ? control.uiState : ({})
     property var trainingData: uiState.training || ({})
+    property var statsData: trainingData.stats || ({})
+    property string currentTaskType: String(trainingData.taskType || "classification")
+    property var taskTypes: trainingData.taskTypes || ["classification", "segmentation", "detection", "ocr"]
     property int labelWidth: 92
     property bool pathsExpanded: true
+    property bool hyperparamsExpanded: true
+    property bool splitExpanded: true
 
     function saveSetting(setting, value) {
         if (!root.control)
@@ -22,13 +27,61 @@ ScrollView {
         root.control.trainAction("set_setting", { "setting": setting, "value": value })
     }
 
+    function backboneOptions() {
+        if (root.currentTaskType === "classification")
+            return ["efficientnet_b0", "resnet18", "mobilenet_v3_large", "mobilenet_v3_small", "mobilenet_v2"]
+        if (root.currentTaskType === "segmentation")
+            return ["unet", "deeplabv3", "segformer"]
+        if (root.currentTaskType === "detection")
+            return ["yolov8n", "fasterrcnn_resnet50", "retinanet_resnet50"]
+        if (root.currentTaskType === "ocr")
+            return ["crnn", "trocr_base", "svtr_tiny"]
+        return ["efficientnet_b0"]
+    }
+
+    function statText(key, fallback) {
+        const v = statsData[key]
+        if (v === undefined || v === null || v === "")
+            return fallback
+        if (typeof v === "number") {
+            if (Math.abs(v) >= 1000 || Number.isInteger(v))
+                return String(v)
+            return Number(v).toFixed(4)
+        }
+        return String(v)
+    }
+
+    function formatSeconds(value) {
+        const n = Number(value)
+        if (!Number.isFinite(n) || n < 0)
+            return "-"
+        const sec = Math.floor(n % 60)
+        const min = Math.floor((n / 60) % 60)
+        const hour = Math.floor(n / 3600)
+        function p2(x) { return (x < 10 ? "0" : "") + x }
+        if (hour > 0)
+            return hour + ":" + p2(min) + ":" + p2(sec)
+        return min + ":" + p2(sec)
+    }
+
     Component.onCompleted: {
         if (trainingData.pathsExpanded !== undefined)
             pathsExpanded = Boolean(trainingData.pathsExpanded)
+        if (trainingData.hyperparamsExpanded !== undefined)
+            hyperparamsExpanded = Boolean(trainingData.hyperparamsExpanded)
+        if (trainingData.splitExpanded !== undefined)
+            splitExpanded = Boolean(trainingData.splitExpanded)
     }
 
     onPathsExpandedChanged: {
         root.saveSetting("uiPathsExpanded", pathsExpanded)
+    }
+
+    onHyperparamsExpandedChanged: {
+        root.saveSetting("uiHyperparamsExpanded", hyperparamsExpanded)
+    }
+    onSplitExpandedChanged: {
+        root.saveSetting("uiSplitExpanded", splitExpanded)
     }
 
     Connections {
@@ -39,6 +92,16 @@ ScrollView {
                 const v = Boolean(td.pathsExpanded)
                 if (root.pathsExpanded !== v)
                     root.pathsExpanded = v
+            }
+            if (td.hyperparamsExpanded !== undefined) {
+                const v2 = Boolean(td.hyperparamsExpanded)
+                if (root.hyperparamsExpanded !== v2)
+                    root.hyperparamsExpanded = v2
+            }
+            if (td.splitExpanded !== undefined) {
+                const v3 = Boolean(td.splitExpanded)
+                if (root.splitExpanded !== v3)
+                    root.splitExpanded = v3
             }
         }
     }
@@ -99,18 +162,6 @@ ScrollView {
         }
     }
 
-    FileDialog {
-        id: predictionFileDialog
-        title: "Select Predicted JSON Path"
-        fileMode: FileDialog.SaveFile
-        nameFilters: ["JSON files (*.json)", "All files (*)"]
-        onAccepted: {
-            const path = selectedFile.toString().replace("file://", "")
-            predictionPathField.text = path
-            root.saveSetting("predictionJsonPath", path)
-        }
-    }
-
     FolderDialog {
         id: dockerMountFolderDialog
         title: "Select Docker Host Mount Path"
@@ -144,7 +195,7 @@ ScrollView {
                 Button {
                     id: pathsToggle
                     width: parent.width
-                    text: (root.pathsExpanded ? "▼ " : "▶ ") + "Training Paths (System Config)"
+                    text: (root.pathsExpanded ? "▼ " : "▶ ") + "Training Paths (" + root.currentTaskType + ")"
                     onClicked: root.pathsExpanded = !root.pathsExpanded
                     contentItem: Text {
                         text: pathsToggle.text
@@ -169,6 +220,24 @@ ScrollView {
                         spacing: 8
                         Text {
                             Layout.preferredWidth: 120
+                            text: "Task Type"
+                            color: root.subTextColor
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        ComboBox {
+                            id: taskTypeCombo
+                            Layout.fillWidth: true
+                            model: root.taskTypes
+                            currentIndex: Math.max(0, model.indexOf(root.currentTaskType))
+                            onActivated: root.saveSetting("taskType", currentText)
+                        }
+                    }
+
+                    RowLayout {
+                        width: parent.width
+                        spacing: 8
+                        Text {
+                            Layout.preferredWidth: 120
                             text: "Python Script"
                             color: root.subTextColor
                             verticalAlignment: Text.AlignVCenter
@@ -183,28 +252,6 @@ ScrollView {
                             Layout.preferredWidth: 72
                             text: "Browse"
                             onClicked: pythonFileDialog.open()
-                        }
-                    }
-
-                    RowLayout {
-                        width: parent.width
-                        spacing: 8
-                        Text {
-                            Layout.preferredWidth: 120
-                            text: "Pred JSON"
-                            color: root.subTextColor
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                        DarkField {
-                            id: predictionPathField
-                            Layout.fillWidth: true
-                            text: String(root.trainingData.predictionJsonPath || "")
-                            onEditingFinished: root.saveSetting("predictionJsonPath", text)
-                        }
-                        DarkButton {
-                            Layout.preferredWidth: 72
-                            text: "Browse"
-                            onClicked: predictionFileDialog.open()
                         }
                     }
 
@@ -308,15 +355,28 @@ ScrollView {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 8
 
-                Text {
-                    text: "Common Hyperparameters (System Defaults)"
-                    color: root.subTextColor
-                    font.pixelSize: 13
+                Button {
+                    id: hyperToggle
+                    width: parent.width
+                    text: (root.hyperparamsExpanded ? "▼ " : "▶ ") + "Common Hyperparameters (" + root.currentTaskType + ")"
+                    onClicked: root.hyperparamsExpanded = !root.hyperparamsExpanded
+                    contentItem: Text {
+                        text: hyperToggle.text
+                        color: root.subTextColor
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        color: "transparent"
+                        border.color: root.borderColor
+                        border.width: 1
+                        radius: 6
+                    }
                 }
 
                 ColumnLayout {
                     width: parent.width
                     spacing: 8
+                    visible: root.hyperparamsExpanded
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -325,7 +385,7 @@ ScrollView {
                         ComboBox {
                             id: backboneCombo
                             Layout.fillWidth: true
-                            model: ["efficientnet_b0", "resnet18", "mobilenet_v3_large", "mobilenet_v3_small", "mobilenet_v2"]
+                            model: root.backboneOptions()
                             currentIndex: Math.max(0, model.indexOf(String(root.trainingData.backbone || "efficientnet_b0")))
                             onActivated: root.saveSetting("backbone", currentText)
                             contentItem: Text {
@@ -466,16 +526,31 @@ ScrollView {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 8
 
-                Text {
-                    text: "Dataset Split"
-                    color: root.subTextColor
-                    font.pixelSize: 13
+                Button {
+                    id: splitToggle
+                    width: parent.width
+                    text: (root.splitExpanded ? "▼ " : "▶ ") + "Dataset Split"
+                    onClicked: root.splitExpanded = !root.splitExpanded
+
+                    contentItem: Text {
+                        text: splitToggle.text
+                        color: root.subTextColor
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+                    }
+                    background: Rectangle {
+                        radius: 6
+                        color: splitToggle.down ? "#30394b" : "#283043"
+                        border.color: root.borderColor
+                        border.width: 1
+                    }
                 }
 
                 RowLayout {
                     id: splitModel
                     width: parent.width
                     spacing: 8
+                    visible: root.splitExpanded
                     property int total: Number((((root.control.uiState || {}).image || {}).imageCount || 0))
                     property int trainPct: Math.max(0, Number(splitTrainField.text || 0))
                     property int valPct: Math.max(0, Number(splitValField.text || 0))
@@ -545,12 +620,26 @@ ScrollView {
                                 elide: Text.ElideRight
                             }
                         }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { Layout.preferredWidth: 55; text: "Seed"; color: root.subTextColor }
+                            DarkField {
+                                id: splitSeedField
+                                Layout.preferredWidth: 90
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                text: String(root.trainingData.splitSeed !== undefined ? root.trainingData.splitSeed : 42)
+                                onEditingFinished: root.saveSetting("splitSeed", Number(text))
+                            }
+                            Item { Layout.fillWidth: true }
+                        }
                     }
                 }
                 RowLayout {
                     id: splitBox
                     width: parent.width
                     spacing: 8
+                    visible: root.splitExpanded
                     DarkButton {
                         text: "Apply"
                         Layout.preferredWidth: 76
@@ -567,6 +656,7 @@ ScrollView {
                 RowLayout {
                     width: parent.width
                     spacing: 8
+                    visible: root.splitExpanded
                     Text {
                         text: "Total: " + splitModel.total
                               + "  Sum%: " + splitModel.sumPct
@@ -609,7 +699,9 @@ ScrollView {
                         text: "Start Train"
                         Layout.preferredWidth: 110
                         enabled: !(root.trainingData.running || false)
-                        onClicked: root.control.trainAction("start_train", {})
+                        onClicked: root.control.trainAction("start_train", {
+                            "projectFilePath": ((((root.control || {}).uiState || {}).project || {}).projectFilePath || "")
+                        })
                     }
                     DarkButton {
                         text: "Stop"
@@ -626,25 +718,108 @@ ScrollView {
                     }
                 }
 
-                ProgressBar {
+                Item {
                     width: parent.width
-                    from: 0
-                    to: 100
-                    value: Number(root.trainingData.progress || 0)
+                    height: 26
+
+                    ProgressBar {
+                        id: trainProgressBar
+                        anchors.fill: parent
+                        from: 0
+                        to: 100
+                        value: Number(root.trainingData.progress || 0)
+                        background: Rectangle {
+                            radius: 3
+                            color: "#141a26"
+                            border.color: root.borderColor
+                            border.width: 1
+                        }
+                    }
+
+                    Text {
+                        id: progressPercentText
+                        anchors.centerIn: parent
+                        text: Math.round(Number(root.trainingData.progress || 0)) + "%"
+                        color: "#ffffff"
+                        font.pixelSize: 12
+                        font.bold: true
+                        z: 2
+                    }
                 }
 
-                TextArea {
+                Rectangle {
+                    width: parent.width
+                    color: "#1b2231"
+                    radius: 6
+                    border.color: root.borderColor
+                    border.width: 1
+                    implicitHeight: statsGrid.implicitHeight + 12
+
+                    GridLayout {
+                        id: statsGrid
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.margins: 6
+                        columns: 4
+                        columnSpacing: 8
+                        rowSpacing: 4
+
+                        Text { text: "Stats"; color: root.subTextColor; Layout.columnSpan: 4; font.pixelSize: 12 }
+
+                        Text { text: "Epoch"; color: root.subTextColor }
+                        Text { text: root.statText("epoch", "-") + "/" + root.statText("total_epochs", "-"); color: root.textColor }
+                        Text { text: "Best Val"; color: root.subTextColor }
+                        Text { text: root.statText("best_val_acc", "-"); color: root.textColor }
+
+                        Text { text: "Train Loss"; color: root.subTextColor }
+                        Text { text: root.statText("train_loss", "-"); color: root.textColor }
+                        Text { text: "Train Acc"; color: root.subTextColor }
+                        Text { text: root.statText("train_acc", "-"); color: root.textColor }
+
+                        Text { text: "Val Loss"; color: root.subTextColor }
+                        Text { text: root.statText("val_loss", "-"); color: root.textColor }
+                        Text { text: "Val Acc"; color: root.subTextColor }
+                        Text { text: root.statText("val_acc", "-"); color: root.textColor }
+
+                        Text { text: "Test Loss"; color: root.subTextColor }
+                        Text { text: root.statText("test_loss", "-"); color: root.textColor }
+                        Text { text: "Test Acc"; color: root.subTextColor }
+                        Text { text: root.statText("test_acc", "-"); color: root.textColor }
+
+                        Text { text: "Elapsed"; color: root.subTextColor }
+                        Text { text: root.formatSeconds(root.statsData.elapsed_sec); color: root.textColor }
+                        Text { text: "Epoch Time"; color: root.subTextColor }
+                        Text { text: root.formatSeconds(root.statsData.epoch_sec); color: root.textColor }
+
+                        Text { text: "ETA"; color: root.subTextColor }
+                        Text { text: root.formatSeconds(root.statsData.eta_sec); color: root.textColor }
+                        Item { Layout.columnSpan: 2 }
+                    }
+                }
+
+                ScrollView {
                     width: parent.width
                     height: 160
-                    readOnly: true
-                    wrapMode: TextArea.Wrap
-                    color: root.textColor
-                    text: String(root.trainingData.logText || "")
-                    background: Rectangle {
-                        radius: 6
-                        color: "#141a26"
-                        border.color: root.borderColor
-                        border.width: 1
+                    clip: true
+                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                    ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+                    TextArea {
+                        id: trainingLogArea
+                        width: parent.width
+                        readOnly: true
+                        wrapMode: TextArea.Wrap
+                        color: root.textColor
+                        text: String(root.trainingData.logText || "")
+                        onTextChanged: {
+                            cursorPosition = length
+                        }
+                        background: Rectangle {
+                            radius: 6
+                            color: "#141a26"
+                            border.color: root.borderColor
+                            border.width: 1
+                        }
                     }
                 }
             }
